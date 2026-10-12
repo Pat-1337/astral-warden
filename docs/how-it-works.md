@@ -20,6 +20,21 @@ A frame is rejected unless every pin has 6–16 V and 0–30 A. That catches all
 
 Nothing is ever written to the chip.
 
+### HWiNFO fallback (Windows)
+
+If NVAPI can't read the chip (at startup, or on any single sample), the reading comes from HWiNFO's shared memory instead.
+
+| | |
+|---|---|
+| Mapping | `Global\HWiNFO_SENS_SM2`, read-only, guarded by `Global\HWiNFO_SM2_MUTEX` (200 ms wait) |
+| Header | `HWiS` signature; data older than 30 s counts as a failed read |
+| Pins | entries labelled `GPU 12VHPWR Pin1..6 Current`, matched on the original or the renamed label |
+| Volts | `GPU 12VHPWR Pin1..6 Voltage` if present, otherwise a nominal 12 V (only affects the watts shown) |
+
+The six entry positions are cached and re-checked against their labels on every read, so a steady-state read touches six entries, not the whole table. HWiNFO is opened lazily and reopened after it restarts. When the direct read works, HWiNFO is never touched.
+
+HWiNFO needs **Settings → Shared Memory Support** turned on. In the free version, that setting turns itself off after 12 hours unless it is re-enabled.
+
 There is one more sanity check: if the pins sum to under 1 A while NVML reports more than 150 W of board power, the sample counts as a failed read. That happens on BTF boards powered through the motherboard slot, where current bypasses the sensor.
 
 ## Detection

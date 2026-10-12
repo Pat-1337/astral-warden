@@ -29,7 +29,7 @@ Detection requires NVIDIA vendor `10de`, ASUS subsystem vendor `1043`, and both 
 | `8a2c` | ROG Astral White 5080 | unconfirmed |
 | `8a45` | ROG Astral OC Hatsune Miku 5080 | 12vhpwr-guard, astral-hwmon |
 
-Unconfirmed boards still have to pass the frame plausibility check before monitoring starts.
+On Linux, unconfirmed boards still have to pass the frame plausibility check before monitoring starts. On Windows, a board whose direct read fails falls back to HWiNFO.
 
 If `status` reports `10de:xxxx 1043:yyyy is not a supported board` for an Astral card, open an issue with that line and the `status` output.
 

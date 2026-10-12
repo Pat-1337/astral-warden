@@ -1,3 +1,4 @@
+mod hwinfo;
 mod nvapi;
 mod tray;
 
@@ -5,7 +6,9 @@ use crate::config::{self, Config};
 use crate::guard::Phase;
 use crate::hardware::{Device, It8915, no_device};
 use crate::log;
+use crate::sensor::{Reading, Sensor};
 use crate::warden::{Host, Severity, Warden};
+use hwinfo::HwInfo;
 use nvapi::{NvApi, NvI2c};
 use std::cell::{Cell, RefCell};
 use std::os::windows::process::CommandExt;
@@ -89,6 +92,22 @@ fn os_error() -> String {
     std::io::Error::last_os_error().to_string()
 }
 
+struct Fallback {
+    direct: Option<It8915<NvI2c>>,
+    hwinfo: HwInfo,
+}
+
+impl Sensor for Fallback {
+    fn read(&mut self) -> Result<Reading, String> {
+        let direct = match self.direct.as_mut().map(Sensor::read) {
+            Some(Ok(reading)) => return Ok(reading),
+            Some(Err(e)) => format!("NVAPI: {e}; "),
+            None => String::new(),
+        };
+        self.hwinfo.read().map_err(|e| format!("{direct}HWiNFO: {e}"))
+    }
+}
+
 pub fn open_device() -> Result<Device, String> {
     let api = NvApi::load()?;
     let mut failures = Vec::new();
@@ -97,17 +116,22 @@ pub fn open_device() -> Result<Device, String> {
             failures.push(format!("{pci} is not a supported board"));
             continue;
         };
-        match It8915::probe(NvI2c { api: api.clone(), gpu }) {
-            Ok(sensor) => {
-                return Ok(Device {
-                    name: format!("{model} via NVAPI"),
-                    pci: Some(pci),
-                    bus: api.bus(gpu),
-                    sensor: Box::new(sensor),
-                });
-            }
-            Err(e) => failures.push(format!("{model}: {e}")),
-        }
+        let direct = It8915::probe(NvI2c { api: api.clone(), gpu })
+            .inspect_err(|e| log!("direct sensor read failed ({e}), falling back to HWiNFO"))
+            .ok();
+        let source = match direct {
+            Some(_) => "NVAPI, HWiNFO as fallback",
+            None => "HWiNFO",
+        };
+        return Ok(Device {
+            name: format!("{model} via {source}"),
+            pci: Some(pci),
+            bus: api.bus(gpu),
+            sensor: Box::new(Fallback {
+                direct,
+                hwinfo: HwInfo::new(),
+            }),
+        });
     }
     Err(no_device(&failures))
 }

@@ -27,6 +27,8 @@ The tray icon shows the state:
 
 Hover over the icon for the hottest pin and the board power. Right-click it for Open config, Open log, and Exit.
 
+Optional fallback: if the direct sensor read fails, readings come from [HWiNFO](https://www.hwinfo.com/) when it is running with **Shared Memory Support** enabled. `status` shows which source is in use (`via NVAPI, HWiNFO as fallback` or `via HWiNFO`).
+
 Administrator rights are needed to change the power limit, and the logon task grants them. Run unelevated, it still monitors and can shut down, but it cannot cap power.
 
 Uninstall: `astral-warden.exe uninstall`. The config is kept.
