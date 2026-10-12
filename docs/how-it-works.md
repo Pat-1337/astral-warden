@@ -34,22 +34,24 @@ Each sample is graded:
 - **imbalance**: the largest |pin − mean| / mean against `imbalance`, judged only when the total is at least `imbalance_min_total_amps`
 
 ```
-            warn × warn_samples                 clean × warn_samples
+            warn × warn_samples                 calm × warn_samples
   Normal ─────────────────────────▶ Warning ─────────────────────────▶ Recovering
     ▲                               │  cap power                       │
-    │                               │  recover_secs elapsed            │ clean for restore_after_secs
+    │                               │  recover_secs elapsed            │ calm for restore_after_secs
     │                               ▼                                  ▼
-    │                            SHUTDOWN ◀── warn again ──────────── restore limit ─▶ Normal
+    │                            SHUTDOWN ◀── warn again ──────────── Normal, restore limit
     │                               ▲
     └── any state: crit × crit_samples ─┘
 
   sensor fails × sensor_fail_samples: Normal/Recovering → Blind (cap power, notify)
-  first good sample:                  Blind → Recovering
+  first good sample:                  Blind → Recovering (a warning here goes to Warning, not SHUTDOWN)
 ```
 
-- If a warning re-triggers while still recovering, the cap was not enough, so the PC shuts down.
+- "Calm" means every value is below 95% of its warn threshold. That hysteresis stops a pin hovering at the threshold from bouncing between Warning and Recovering.
+- If a warning re-triggers while recovering from a warning, the cap was not enough, so the PC shuts down.
 - During a warning, failed reads don't stop the shutdown timer.
-- With `shutdown = false`, every SHUTDOWN becomes a sustained warning instead.
+- On shutdown, the cap is engaged and kept even while the process is stopped, and the shutdown request is retried every 15 s until it succeeds.
+- With `shutdown = false`, the first critical condition sends a one-off critical notification and the warning continues.
 
 ## Actions
 
@@ -59,11 +61,15 @@ Each sample is graded:
 | Cap | NVML `nvmlDeviceSetPowerManagementLimit` | same |
 | Shutdown | `InitiateSystemShutdownExW` (force apps closed, reason "hardware: environment"), falling back to `shutdown /s /f /t 0` | `systemctl poweroff` → `shutdown -P now` → `poweroff` → `reboot(2)` |
 
-The power cap is released when the process exits (Exit, service stop, or logoff), so a stopped watchdog never leaves the card throttled.
+The power cap is released when the process exits normally (Exit, service stop, or logoff), so a stopped watchdog doesn't leave the card throttled. Shutdown is the exception: the cap stays.
+
+The limit saved before capping is also written to a state file (`/run/astral-warden.power-cap`, or `C:\ProgramData\astral-warden\power-cap.state`). If the process is killed while capped, the next start finds the cap still in place and restores the previous limit. A reboot clears both the cap and, on Linux, the file. On Windows, a stale file is ignored because the limit no longer matches.
+
+When there are several GPUs, NVML is matched by PCI IDs and bus number.
 
 ## Footprint
 
 - One thread. Windows uses a message-loop timer; Linux uses a sleep loop.
 - Each sample is one 24-byte I2C transaction.
-- The binary is about 0.7 MB, with no runtime dependencies beyond the NVIDIA driver.
+- The binary is about 0.7 MB, with no runtime dependencies beyond the NVIDIA driver (and glibc on Linux).
 - Only one instance runs: a `Global\AstralWarden` mutex on Windows, an `flock` on `/run/lock/astral-warden.lock` on Linux.

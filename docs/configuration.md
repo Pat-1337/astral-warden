@@ -1,6 +1,6 @@
 # Configuration
 
-TOML. A missing file means all defaults. An unknown key or invalid value refuses to start, so a typo can't silently disable protection.
+TOML. If the default path has no file, all defaults apply. A file named with `--config` must exist. An unknown key or invalid value refuses to start, so a typo can't silently disable protection.
 
 ```toml
 poll_ms = 500
@@ -31,7 +31,7 @@ restore_after_secs = 120
 | `pin_amps.warn` / `.crit` | 9.5 / 13.0 | Per-pin current in amps. 9.5 A is the contact rating; 600 W balanced is about 8.3 A per pin. |
 | `imbalance.warn` / `.crit` | 0.3 / 0.6 | The largest deviation of one pin from the mean, as a fraction: 0.3 means ±30%. Healthy cards stay under about 0.16. A dead pin reads -100%. |
 | `imbalance_min_total_amps` | 20 | Imbalance is only judged above this total current, because idle readings are noisy. |
-| `warn_samples` | 6 | Consecutive samples over a warn threshold before a warning, and consecutive clean samples before it counts as recovered. |
+| `warn_samples` | 6 | Consecutive samples over a warn threshold before a warning, and consecutive calm samples (every value below 95% of its warn threshold) before it counts as recovered. |
 | `crit_samples` | 4 | Consecutive samples over a crit threshold before shutdown. |
 | `recover_secs` | 10 | How long a warning may last before shutdown. |
 | `sensor_fail_samples` | 6 | Consecutive failed reads before "sensor lost". |

@@ -1,12 +1,13 @@
 use crate::config::Config;
-use crate::guard::{Action, Fault, Guard, Phase};
+use crate::guard::{Action, Guard, Phase};
 use crate::log;
 use crate::power::PowerCap;
 use crate::sensor::{Reading, Sensor};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const IDLE_PIN_AMPS: f32 = 1.0;
 const LOADED_BOARD_WATTS: f32 = 150.0;
+const SHUTDOWN_RETRY: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -26,6 +27,8 @@ pub struct Warden {
     sensor: Box<dyn Sensor>,
     cap: PowerCap,
     hold_error: bool,
+    release_error: bool,
+    shutdown: Option<(String, Instant)>,
 }
 
 impl Warden {
@@ -41,6 +44,8 @@ impl Warden {
             sensor,
             cap,
             hold_error: false,
+            release_error: false,
+            shutdown: None,
         }
     }
 
@@ -80,17 +85,22 @@ impl Warden {
         Ok(reading)
     }
 
-    pub fn tick(&mut self, host: &mut impl Host) -> Option<Fault> {
+    pub fn tick(&mut self, host: &mut impl Host) {
+        if self.guard.phase() == Phase::Halted {
+            self.hold(host);
+            self.retry_shutdown(host);
+            return;
+        }
         let sample = self.sample();
         let action = self.guard.step(Instant::now(), sample);
         self.hold(host);
-        match action? {
-            Action::Warn(fault) => {
+        match action {
+            None => {}
+            Some(Action::Warn(fault)) => {
                 let cap = self.engage();
-                let deadline = if self.cfg.shutdown {
-                    format!(" Shutdown in {} s unless it recovers.", self.cfg.recover_secs)
-                } else {
-                    String::new()
+                let deadline = match self.cfg.shutdown {
+                    true => format!(" Shutdown in {} s unless it recovers.", self.cfg.recover_secs),
+                    false => String::new(),
                 };
                 self.emit(
                     host,
@@ -99,42 +109,92 @@ impl Warden {
                     &format!("{fault}.{cap}{deadline}"),
                 );
             }
-            Action::Recovered => {
-                let body = match self.cap.engaged() {
-                    true => format!(
-                        "Back within limits. Power cap held for {} s.",
-                        self.cfg.power_cap.restore_after_secs
-                    ),
-                    false => "Back within limits.".to_owned(),
-                };
-                self.emit(host, Severity::Info, "12V-2x6 recovered", &body);
+            Some(Action::Critical(fault)) => {
+                let cap = self.engage();
+                let body = format!("{fault}.{cap} Shutdown is disabled in the config.");
+                self.emit(host, Severity::Crit, "12V-2x6 CRITICAL", &body);
             }
-            Action::Restore => match self.cap.release() {
-                Ok(Some(mw)) => self.emit(
+            Some(Action::Recovered) => {
+                let window = self.cfg.power_cap.restore_after_secs;
+                let cap = match self.cap.engaged() {
+                    true => format!(" Power cap held for {window} s."),
+                    false => String::new(),
+                };
+                let rule = match self.cfg.shutdown {
+                    true => format!(" A new warning within {window} s shuts down."),
+                    false => String::new(),
+                };
+                self.emit(
                     host,
                     Severity::Info,
-                    "Power limit restored",
-                    &format!("{} W", mw / 1000),
-                ),
-                Ok(None) => {}
-                Err(e) => self.emit(host, Severity::Warn, "Power limit restore failed", &e),
-            },
-            Action::SensorLost => {
+                    "12V-2x6 recovered",
+                    &format!("Back within limits.{cap}{rule}"),
+                );
+            }
+            Some(Action::SensorLost) => {
                 let cap = self.engage();
                 let body = format!("Pin currents cannot be read.{cap}");
                 self.emit(host, Severity::Warn, "12V-2x6 sensor lost", &body);
             }
-            Action::SensorBack => self.emit(host, Severity::Info, "12V-2x6 sensor back", "Readings resumed."),
-            Action::Shutdown(fault) => {
+            Some(Action::SensorBack) => self.emit(host, Severity::Info, "12V-2x6 sensor back", "Readings resumed."),
+            Some(Action::Shutdown(fault)) => {
+                let _ = self.cap.engage();
+                self.cap.keep();
                 let reason = format!("{fault}. Shutting down to protect the connector.");
                 self.emit(host, Severity::Crit, "12V-2x6 CRITICAL", &reason);
-                if let Err(e) = host.shutdown(&reason) {
-                    log!("shutdown failed: {e}");
-                }
-                return Some(fault);
+                self.shutdown = Some((reason, Instant::now()));
+                self.attempt_shutdown(host);
             }
         }
-        None
+        if self.guard.phase() == Phase::Normal && self.cap.engaged() {
+            self.restore(host);
+        }
+    }
+
+    fn attempt_shutdown(&mut self, host: &mut impl Host) {
+        let Some((reason, at)) = self.shutdown.as_mut() else {
+            return;
+        };
+        *at = Instant::now();
+        match host.shutdown(reason) {
+            Ok(()) => self.shutdown = None,
+            Err(e) => log!("shutdown failed, retrying in {} s: {e}", SHUTDOWN_RETRY.as_secs()),
+        }
+    }
+
+    fn retry_shutdown(&mut self, host: &mut impl Host) {
+        if self
+            .shutdown
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed() >= SHUTDOWN_RETRY)
+        {
+            self.attempt_shutdown(host);
+        }
+    }
+
+    fn restore(&mut self, host: &mut impl Host) {
+        match self.cap.release() {
+            Ok(Some(mw)) => {
+                self.release_error = false;
+                self.emit(
+                    host,
+                    Severity::Info,
+                    "Power limit restored",
+                    &format!("{} W", mw / 1000),
+                );
+            }
+            Ok(None) => {}
+            Err(e) if !self.release_error => {
+                self.release_error = true;
+                self.emit(
+                    host,
+                    Severity::Warn,
+                    "Power limit restore failed",
+                    &format!("{e}. Retrying."),
+                );
+            }
+            Err(_) => {}
+        }
     }
 
     fn engage(&mut self) -> String {

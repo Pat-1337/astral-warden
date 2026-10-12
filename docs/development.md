@@ -23,8 +23,8 @@ On macOS, shutdown is logged and not executed.
 
 ```sh
 cargo install cargo-zigbuild
-rustup target add x86_64-unknown-linux-musl x86_64-pc-windows-gnu
-cargo zigbuild --release --target x86_64-unknown-linux-musl
+rustup target add x86_64-unknown-linux-gnu x86_64-pc-windows-gnu
+cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.17
 cargo zigbuild --release --target x86_64-pc-windows-gnu
 ```
 
@@ -51,7 +51,9 @@ export PATH="$(dirname "$(rustup which rustc)"):$PATH"
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds:
 
 - `astral-warden-<tag>-windows-x86_64.zip` (MSVC)
-- `astral-warden-<tag>-linux-x86_64-{systemd,openrc,runit}.tar.gz` (static musl)
+- `astral-warden-<tag>-linux-x86_64-{systemd,openrc,runit}.tar.gz` (glibc 2.17+)
 - `SHA256SUMS`
 
-AUR and Homebrew-tap packaging can use the musl tarball as-is.
+Linux is not built against musl: a static musl binary can't `dlopen` the glibc-built NVML library, which would silently disable the power cap.
+
+AUR and Homebrew-tap packaging can use the Linux tarball as-is.

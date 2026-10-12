@@ -94,6 +94,7 @@ pub struct Tray {
     data: NOTIFYICONDATAW,
     tone: Option<Tone>,
     tip: String,
+    added: bool,
 }
 
 impl Tray {
@@ -107,20 +108,22 @@ impl Tray {
             data,
             tone: None,
             tip: String::new(),
+            added: false,
         }
     }
 
-    pub fn add(&mut self) {
+    fn add(&mut self) {
         self.data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
         self.data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
-        unsafe {
-            Shell_NotifyIconW(NIM_ADD, &self.data);
-            Shell_NotifyIconW(NIM_SETVERSION, &self.data);
+        self.added =
+            unsafe { Shell_NotifyIconW(NIM_ADD, &self.data) != 0 || Shell_NotifyIconW(NIM_MODIFY, &self.data) != 0 };
+        if self.added {
+            unsafe { Shell_NotifyIconW(NIM_SETVERSION, &self.data) };
         }
     }
 
     pub fn update(&mut self, tone: Tone, tip: &str) {
-        if self.tone == Some(tone) && self.tip == tip {
+        if self.added && self.tone == Some(tone) && self.tip == tip {
             return;
         }
         if self.tone != Some(tone) {
@@ -129,15 +132,14 @@ impl Tray {
                 unsafe { DestroyIcon(old) };
             }
         }
-        let first = self.tone.is_none();
         self.tone = Some(tone);
         self.tip = tip.to_owned();
         copy_wide(&mut self.data.szTip, tip);
-        if first {
-            self.add();
-        } else {
+        if self.added {
             self.data.uFlags = NIF_ICON | NIF_TIP | NIF_SHOWTIP;
-            unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.data) };
+            self.added = unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.data) } != 0;
+        } else {
+            self.add();
         }
     }
 
@@ -155,7 +157,7 @@ impl Tray {
             Severity::Warn => NIIF_WARNING,
             Severity::Crit => NIIF_ERROR,
         };
-        self.data.uFlags = NIF_INFO;
+        self.data.uFlags = NIF_INFO | NIF_SHOWTIP;
         unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.data) };
     }
 }

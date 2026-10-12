@@ -12,6 +12,7 @@ const INITIALIZE: u32 = 0x0150_E828;
 const ENUM_PHYSICAL_GPUS: u32 = 0xE5AC_921F;
 const GPU_GET_PCI_IDENTIFIERS: u32 = 0x2DDF_B66E;
 const I2C_READ_EX: u32 = 0x4D7B_0709;
+const GPU_GET_BUS_ID: u32 = 0x1BE0_B8E5;
 const I2C_INFO_V3: u32 = 3 << 16 | size_of::<I2cInfo>() as u32;
 const I2C_SPEED_DEPRECATED: u32 = 0xFFFF;
 const I2C_SPEED_100KHZ: u32 = 4;
@@ -48,6 +49,7 @@ pub struct NvApi {
     enum_gpus: unsafe extern "C" fn(*mut [Handle; MAX_GPUS], *mut u32) -> Status,
     pci_ids: unsafe extern "C" fn(Handle, *mut u32, *mut u32, *mut u32, *mut u32) -> Status,
     i2c_read: unsafe extern "C" fn(Handle, *mut I2cInfo, *mut u32) -> Status,
+    bus_id: Option<unsafe extern "C" fn(Handle, *mut u32) -> Status>,
 }
 
 unsafe impl Send for NvApi {}
@@ -65,6 +67,7 @@ impl NvApi {
                 enum_gpus: resolve(query, ENUM_PHYSICAL_GPUS)?,
                 pci_ids: resolve(query, GPU_GET_PCI_IDENTIFIERS)?,
                 i2c_read: resolve(query, I2C_READ_EX)?,
+                bus_id: resolve(query, GPU_GET_BUS_ID).ok(),
                 _lib: lib,
             };
             match initialize() {
@@ -72,6 +75,11 @@ impl NvApi {
                 code => Err(format!("NvAPI_Initialize failed ({code})")),
             }
         }
+    }
+
+    pub fn bus(&self, gpu: Handle) -> Option<u32> {
+        let mut bus = 0;
+        (unsafe { (self.bus_id?)(gpu, &mut bus) } == 0).then_some(bus)
     }
 
     pub fn gpus(&self) -> Vec<(Handle, PciId)> {

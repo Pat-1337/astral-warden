@@ -30,12 +30,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: mlugg/setup-zig@v2
+      - uses: taiki-e/install-action@v2
         with:
-          targets: x86_64-unknown-linux-musl
-      - run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - run: cargo build --release --locked --target x86_64-unknown-linux-musl
+          tool: cargo-zigbuild
+      - run: cargo zigbuild --release --locked --target x86_64-unknown-linux-gnu.2.17
       - run: |
-          bin=target/x86_64-unknown-linux-musl/release/astral-warden
+          bin=target/x86_64-unknown-linux-gnu/release/astral-warden
           for flavor in systemd openrc runit; do
             name="astral-warden-${GITHUB_REF_NAME}-linux-x86_64-${flavor}"
             mkdir -p "$name/init"

@@ -30,11 +30,12 @@ use windows_sys::Win32::System::Threading::{CreateMutexW, GetCurrentProcess, Ope
 use windows_sys::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
 use windows_sys::Win32::UI::Shell::{IsUserAnAdmin, NIN_SELECT, NINF_KEY, ShellExecuteW};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW,
-    GetCursorPos, GetMessageW, KillTimer, MB_ICONERROR, MB_ICONINFORMATION, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG,
-    MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SW_HIDE, SW_SHOWNORMAL,
-    SetForegroundWindow, SetTimer, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
-    WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION, WM_NULL, WM_QUERYENDSESSION, WM_TIMER, WNDCLASSW,
+    AppendMenuW, ChangeWindowMessageFilterEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
+    DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, KillTimer, MB_ICONERROR, MB_ICONINFORMATION, MF_GRAYED,
+    MF_SEPARATOR, MF_STRING, MSG, MSGFLT_ALLOW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
+    RegisterWindowMessageW, SW_HIDE, SW_SHOWNORMAL, SetForegroundWindow, SetTimer, TPM_NONOTIFY, TPM_RETURNCMD,
+    TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION, WM_NULL,
+    WM_QUERYENDSESSION, WM_TIMER, WNDCLASSW,
 };
 
 const TASK: &str = "AstralWarden";
@@ -56,7 +57,6 @@ thread_local! {
 struct App {
     warden: Warden,
     tray: Tray,
-    halted: bool,
 }
 
 impl App {
@@ -102,6 +102,7 @@ pub fn open_device() -> Result<Device, String> {
                 return Ok(Device {
                     name: format!("{model} via NVAPI"),
                     pci: Some(pci),
+                    bus: api.bus(gpu),
                     sensor: Box::new(sensor),
                 });
             }
@@ -244,10 +245,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
     match msg {
         WM_TIMER if wparam == POLL_TIMER => {
             with_app(|app| {
-                if !app.halted {
-                    app.halted = app.warden.tick(&mut app.tray).is_some();
-                    app.refresh();
-                }
+                app.warden.tick(&mut app.tray);
+                app.refresh();
             });
             0
         }
@@ -311,10 +310,10 @@ pub fn run(warden: Warden, cfg: &Config) -> Result<(), String> {
     if hwnd.is_null() {
         return Err(format!("CreateWindow: {}", os_error()));
     }
+    unsafe { ChangeWindowMessageFilterEx(hwnd, TASKBAR_CREATED.get(), MSGFLT_ALLOW, std::ptr::null_mut()) };
     let mut app = App {
         warden,
         tray: Tray::new(hwnd, WM_TRAY),
-        halted: false,
     };
     app.refresh();
     APP.with(|cell| *cell.borrow_mut() = Some(app));
@@ -328,6 +327,18 @@ pub fn run(warden: Warden, cfg: &Config) -> Result<(), String> {
     }
     APP.with(|cell| cell.borrow_mut().take());
     Ok(())
+}
+
+fn copy_with_retry(from: &Path, to: &Path) -> Result<(), String> {
+    let mut result = std::fs::copy(from, to);
+    for _ in 0..20 {
+        if result.is_ok() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        result = std::fs::copy(from, to);
+    }
+    result.map(drop).map_err(|e| format!("{}: {e}", to.display()))
 }
 
 fn install_dir() -> PathBuf {
@@ -366,7 +377,7 @@ fn task_xml(exe: &Path, config: &Path) -> String {
     <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>
   </Settings>
   <Actions Context="Author">
-    <Exec><Command>"{}"</Command><Arguments>run --config "{}"</Arguments></Exec>
+    <Exec><Command>"{}"</Command><Arguments>run --wait --config "{}"</Arguments></Exec>
   </Actions>
 </Task>
 "#,
@@ -416,7 +427,7 @@ pub fn install(config: &Path) -> Result<(), String> {
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e} (run as administrator)", dir.display()))?;
     let current = std::env::current_exe().map_err(|e| e.to_string())?;
     if current != exe {
-        std::fs::copy(&current, &exe).map_err(|e| format!("{}: {e}", exe.display()))?;
+        copy_with_retry(&current, &exe)?;
     }
     if Config::write_default(config).map_err(|e| format!("{}: {e}", config.display()))? {
         println!("wrote {}", config.display());

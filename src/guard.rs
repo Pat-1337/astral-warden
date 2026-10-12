@@ -29,8 +29,8 @@ impl fmt::Display for Fault {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Action {
     Warn(Fault),
+    Critical(Fault),
     Recovered,
-    Restore,
     Shutdown(Fault),
     SensorLost,
     SensorBack,
@@ -39,11 +39,20 @@ pub enum Action {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Phase {
     Normal,
-    Warning { since: Instant, fault: Fault },
-    Recovering { since: Instant },
+    Warning {
+        since: Instant,
+        fault: Fault,
+        escalated: bool,
+    },
+    Recovering {
+        since: Instant,
+        strict: bool,
+    },
     Blind,
     Halted,
 }
+
+const CALM: f32 = 0.95;
 
 pub fn imbalance(r: &Reading) -> (usize, f32) {
     let mean = r.total() / PINS as f32;
@@ -74,6 +83,11 @@ pub fn assess(r: &Reading, cfg: &Config) -> Option<(Level, Fault)> {
         (Some(p), Some(b)) if b.0 > p.0 => Some(b),
         (p, b) => p.or(b),
     }
+}
+
+pub fn calm(r: &Reading, cfg: &Config) -> bool {
+    let balanced = r.total() < cfg.imbalance_min_total_amps || imbalance(r).1.abs() < cfg.imbalance.warn * CALM;
+    r.hottest().1 < cfg.pin_amps.warn * CALM && balanced
 }
 
 pub struct Guard {
@@ -139,34 +153,49 @@ impl Guard {
         let bump = |streak: u32, hit: bool| if hit { streak.saturating_add(1) } else { 0 };
         self.crit_streak = bump(self.crit_streak, level == Some(Level::Crit));
         self.warn_streak = bump(self.warn_streak, level.is_some());
-        self.ok_streak = bump(self.ok_streak, level.is_none());
+        self.ok_streak = bump(self.ok_streak, calm(&r, &self.cfg));
 
         if let Some((_, fault)) = verdict.filter(|_| self.crit_streak >= self.cfg.crit_samples) {
-            return self.halt(fault);
+            return self.halt(now, fault);
         }
         let warned = self.warn_streak >= self.cfg.warn_samples;
+        let calmed = self.ok_streak >= self.cfg.warn_samples;
         let restore = Duration::from_secs(self.cfg.power_cap.restore_after_secs);
         match (self.phase, verdict) {
-            (Phase::Recovering { .. }, Some((_, fault))) if warned => self.halt(fault),
-            (Phase::Normal | Phase::Blind, Some((_, fault))) if warned => {
-                self.phase = Phase::Warning { since: now, fault };
+            (Phase::Recovering { strict: true, .. }, Some((_, fault))) if warned => self.halt(now, fault),
+            (Phase::Normal | Phase::Blind | Phase::Recovering { .. }, Some((_, fault))) if warned => {
+                self.phase = Phase::Warning {
+                    since: now,
+                    fault,
+                    escalated: false,
+                };
                 Some(Action::Warn(fault))
             }
-            (Phase::Warning { since, .. }, Some((_, fault))) => {
-                self.phase = Phase::Warning { since, fault };
+            (Phase::Warning { since, escalated, .. }, Some((_, fault))) => {
+                self.phase = Phase::Warning {
+                    since,
+                    fault,
+                    escalated,
+                };
                 self.timeout(now)
             }
-            (Phase::Warning { .. }, None) if self.ok_streak >= self.cfg.warn_samples => {
-                self.phase = Phase::Recovering { since: now };
+            (Phase::Warning { .. }, None) if calmed => {
+                self.phase = Phase::Recovering {
+                    since: now,
+                    strict: true,
+                };
                 Some(Action::Recovered)
             }
             (Phase::Blind, None) => {
-                self.phase = Phase::Recovering { since: now };
+                self.phase = Phase::Recovering {
+                    since: now,
+                    strict: false,
+                };
                 Some(Action::SensorBack)
             }
-            (Phase::Recovering { since }, None) if now.duration_since(since) >= restore => {
+            (Phase::Recovering { since, .. }, None) if now.duration_since(since) >= restore => {
                 self.phase = Phase::Normal;
-                Some(Action::Restore)
+                None
             }
             _ => self.timeout(now),
         }
@@ -174,32 +203,29 @@ impl Guard {
 
     fn timeout(&mut self, now: Instant) -> Option<Action> {
         match self.phase {
-            Phase::Warning { since, fault }
+            Phase::Warning { since, fault, .. }
                 if now.duration_since(since) >= Duration::from_secs(self.cfg.recover_secs) =>
             {
-                self.halt(fault)
+                self.halt(now, fault)
             }
             _ => None,
         }
     }
 
-    fn halt(&mut self, fault: Fault) -> Option<Action> {
+    fn halt(&mut self, now: Instant, fault: Fault) -> Option<Action> {
         if self.cfg.shutdown {
             self.phase = Phase::Halted;
             return Some(Action::Shutdown(fault));
         }
-        match self.phase {
-            Phase::Warning { since, .. } => {
-                self.phase = Phase::Warning { since, fault };
-                None
-            }
-            _ => {
-                self.phase = Phase::Warning {
-                    since: Instant::now(),
-                    fault,
-                };
-                Some(Action::Warn(fault))
-            }
-        }
+        let (since, first) = match self.phase {
+            Phase::Warning { since, escalated, .. } => (since, !escalated),
+            _ => (now, true),
+        };
+        self.phase = Phase::Warning {
+            since,
+            fault,
+            escalated: true,
+        };
+        first.then_some(Action::Critical(fault))
     }
 }

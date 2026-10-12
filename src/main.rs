@@ -19,7 +19,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use warden::Warden;
 
-const USAGE: &str = "astral-warden [run|status|install|uninstall] [--config <path>]";
+const USAGE: &str = "astral-warden [run|status|install|uninstall] [--config <path>] [--wait]";
+const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 enum Command {
     Run,
@@ -29,9 +30,16 @@ enum Command {
     Print(&'static str),
 }
 
-fn parse() -> Result<(Command, PathBuf), String> {
+struct Args {
+    command: Command,
+    config: PathBuf,
+    explicit: bool,
+    wait: bool,
+}
+
+fn parse() -> Result<Args, String> {
     let mut command = Command::Run;
-    let mut config = config::default_path();
+    let (mut config, mut explicit, mut wait) = (config::default_path(), false, false);
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -39,13 +47,23 @@ fn parse() -> Result<(Command, PathBuf), String> {
             "status" => command = Command::Status,
             "install" => command = Command::Install,
             "uninstall" => command = Command::Uninstall,
-            "-c" | "--config" => config = args.next().ok_or("--config needs a path")?.into(),
+            "--wait" => wait = true,
+            "-c" | "--config" => {
+                let path = PathBuf::from(args.next().ok_or("--config needs a path")?);
+                config = std::path::absolute(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+                explicit = true;
+            }
             "-V" | "--version" => command = Command::Print(concat!("astral-warden ", env!("CARGO_PKG_VERSION"))),
             "-h" | "--help" => command = Command::Print(USAGE),
             other => return Err(format!("unknown argument {other:?}\n{USAGE}")),
         }
     }
-    Ok((command, config))
+    Ok(Args {
+        command,
+        config,
+        explicit,
+        wait,
+    })
 }
 
 fn open(cfg: &Config) -> Result<Device, String> {
@@ -53,6 +71,7 @@ fn open(cfg: &Config) -> Result<Device, String> {
         Some(path) => Ok(Device {
             name: format!("simulated ({})", path.display()),
             pci: None,
+            bus: None,
             sensor: Box::new(Simulated(path.clone())),
         }),
         None => platform::open_device(),
@@ -60,8 +79,13 @@ fn open(cfg: &Config) -> Result<Device, String> {
 }
 
 fn status(cfg: &Config) -> Result<(), String> {
-    let Device { name, pci, mut sensor } = open(cfg)?;
-    let cap = PowerCap::new(pci, cfg.power_cap.percent);
+    let Device {
+        name,
+        pci,
+        bus,
+        mut sensor,
+    } = open(cfg)?;
+    let cap = PowerCap::new(pci, bus, cfg.power_cap.percent, config::state_path());
     println!("device   {name}");
     let reading = sensor.read()?;
     for (pin, (volts, amps)) in reading.volts.iter().zip(reading.amps).enumerate() {
@@ -83,21 +107,34 @@ fn status(cfg: &Config) -> Result<(), String> {
     Ok(())
 }
 
-fn run(cfg: Config) -> Result<(), String> {
-    let _lock = platform::single_instance()?;
-    let Device { name, pci, sensor } = open(&cfg)?;
+fn lock(wait: bool) -> Result<platform::Lock, String> {
+    loop {
+        match platform::single_instance() {
+            Err(e) if wait => {
+                log!("{e}; retrying in {} s", WAIT.as_secs());
+                std::thread::sleep(WAIT);
+            }
+            other => return other,
+        }
+    }
+}
+
+fn run(cfg: Config, wait: bool) -> Result<(), String> {
+    let _lock = lock(wait)?;
+    let Device { name, pci, bus, sensor } = open(&cfg)?;
     log!("watching {name}");
-    let cap = PowerCap::new(pci, cfg.power_cap.percent);
+    let mut cap = PowerCap::new(pci, bus, cfg.power_cap.percent, config::state_path());
+    cap.resume();
     platform::run(Warden::new(cfg.clone(), sensor, cap), &cfg)
 }
 
 fn main() -> ExitCode {
     platform::attach_console();
-    let result = parse().and_then(|(command, path)| match command {
-        Command::Install => platform::install(&path),
+    let result = parse().and_then(|args| match args.command {
+        Command::Install => platform::install(&args.config),
         Command::Uninstall => platform::uninstall(),
-        Command::Status => Config::load(&path).and_then(|cfg| status(&cfg)),
-        Command::Run => Config::load(&path).and_then(run),
+        Command::Status => Config::load(&args.config, args.explicit).and_then(|cfg| status(&cfg)),
+        Command::Run => Config::load(&args.config, args.explicit).and_then(|cfg| run(cfg, args.wait)),
         Command::Print(text) => {
             println!("{text}");
             Ok(())

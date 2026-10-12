@@ -1,7 +1,7 @@
 use crate::warden::{Host, Warden};
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -9,13 +9,18 @@ static STOP: AtomicBool = AtomicBool::new(false);
 
 pub struct Lock(#[allow(dead_code)] File);
 
-pub fn lock(path: &Path) -> Result<Lock, String> {
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(path)
-        .map_err(|e| format!("{}: {e}", path.display()))?;
+pub fn lock(candidates: &[PathBuf]) -> Result<Lock, String> {
+    let file = candidates
+        .iter()
+        .find_map(|path| {
+            OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(path)
+                .ok()
+        })
+        .ok_or("cannot create a lock file")?;
     match unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } {
         0 => Ok(Lock(file)),
         _ => Err("another instance is already running".into()),
@@ -32,9 +37,7 @@ pub fn run_loop(mut warden: Warden, poll: Duration, host: &mut impl Host) -> Res
     }
     let mut next = Instant::now();
     while !STOP.load(Ordering::Relaxed) {
-        if warden.tick(host).is_some() {
-            break;
-        }
+        warden.tick(host);
         next += poll;
         let now = Instant::now();
         match next.checked_duration_since(now) {

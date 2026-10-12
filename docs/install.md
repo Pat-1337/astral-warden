@@ -14,6 +14,7 @@ What `install` does:
 | Copy binary | `C:\Program Files\AstralWarden\astral-warden.exe` |
 | Default config | `C:\ProgramData\astral-warden\config.toml` |
 | Scheduled task | `AstralWarden`, runs at every logon with the highest privileges, no time limit, restarts on failure |
+| Multi-user | with fast user switching, a second session waits (`--wait`) and takes over when the first logs off |
 | Start | starts the task right away |
 
 The tray icon shows the state:
@@ -43,7 +44,7 @@ cd astral-warden-*/
 sudo ./astral-warden install
 ```
 
-The binary is static (musl) and the same in every archive. The `-systemd`, `-openrc`, and `-runit` archives differ only in the reference service file in `init/`. `install` detects the init system on its own:
+The binary needs glibc 2.17 or newer, which it uses to load NVML for the power cap. It is the same in every archive. The `-systemd`, `-openrc`, and `-runit` archives differ only in the reference service file in `init/`. `install` detects the init system on its own:
 
 | Init | Detected by | Service file | Logs |
 |---|---|---|---|

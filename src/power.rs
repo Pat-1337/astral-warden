@@ -1,6 +1,8 @@
 use crate::dylib::Library;
 use crate::hardware::PciId;
+use crate::log;
 use std::ffi::{CStr, c_char, c_void};
+use std::path::PathBuf;
 
 type Ret = u32;
 type Device = *mut c_void;
@@ -37,7 +39,7 @@ struct PciInfo {
 }
 
 impl Nvml {
-    fn open(pci: PciId) -> Result<Self, String> {
+    fn open(pci: PciId, bus: Option<u32>) -> Result<Self, String> {
         let lib = Library::open(NVML).ok_or("NVML not found")?;
         unsafe {
             macro_rules! sym {
@@ -74,7 +76,7 @@ impl Nvml {
                     let mut info = std::mem::zeroed::<PciInfo>();
                     (by_index(i, &mut dev) == 0 && pci_info(dev, &mut info) == 0).then_some((dev, info))
                 })
-                .find(|(_, info)| (info.device_id, info.subsystem_id) == wanted)
+                .find(|(_, info)| (info.device_id, info.subsystem_id) == wanted && bus.is_none_or(|b| b == info.bus))
                 .map(|(dev, _)| dev)
                 .ok_or("NVML does not list this GPU")?;
             let (mut min, mut max, mut default) = (0, 0, 0);
@@ -109,14 +111,39 @@ pub struct PowerCap {
     nvml: Result<Nvml, String>,
     percent: u32,
     saved_mw: Option<u32>,
+    state: PathBuf,
+    keep: bool,
 }
 
 impl PowerCap {
-    pub fn new(pci: Option<PciId>, percent: u32) -> Self {
+    pub fn new(pci: Option<PciId>, bus: Option<u32>, percent: u32, state: PathBuf) -> Self {
         Self {
-            nvml: pci.ok_or_else(|| "no NVIDIA device".to_owned()).and_then(Nvml::open),
+            nvml: pci
+                .ok_or_else(|| "no NVIDIA device".to_owned())
+                .and_then(|pci| Nvml::open(pci, bus)),
             percent,
             saved_mw: None,
+            state,
+            keep: false,
+        }
+    }
+
+    pub fn resume(&mut self) {
+        let Some((saved, target)) = std::fs::read_to_string(&self.state).ok().and_then(|text| {
+            let mut values = text.split_whitespace().map(str::parse::<u32>);
+            Some((values.next()?.ok()?, values.next()?.ok()?))
+        }) else {
+            return;
+        };
+        match &self.nvml {
+            Ok(nvml) if nvml.query(nvml.get_limit).is_ok_and(|current| current == target) => {
+                log!(
+                    "found the power cap of an earlier run, previous limit {} W",
+                    saved / 1000
+                );
+                self.saved_mw = Some(saved);
+            }
+            _ => drop(std::fs::remove_file(&self.state)),
         }
     }
 
@@ -138,6 +165,10 @@ impl PowerCap {
         self.saved_mw.is_some()
     }
 
+    pub fn keep(&mut self) {
+        self.keep = true;
+    }
+
     fn target_mw(nvml: &Nvml, percent: u32) -> u32 {
         (u64::from(nvml.default_mw) * u64::from(percent) / 100).clamp(u64::from(nvml.min_mw), u64::from(nvml.max_mw))
             as u32
@@ -150,7 +181,10 @@ impl PowerCap {
         if current > target {
             nvml.check(unsafe { (nvml.set_limit)(nvml.dev, target) })?;
         }
-        self.saved_mw.get_or_insert(current);
+        if self.saved_mw.is_none() {
+            self.saved_mw = Some(current);
+            let _ = std::fs::write(&self.state, format!("{current} {}", target.min(current)));
+        }
         Ok(target.min(current))
     }
 
@@ -170,12 +204,15 @@ impl PowerCap {
             nvml.check(unsafe { (nvml.set_limit)(nvml.dev, saved) })?;
         }
         self.saved_mw = None;
+        let _ = std::fs::remove_file(&self.state);
         Ok(Some(saved))
     }
 }
 
 impl Drop for PowerCap {
     fn drop(&mut self) {
-        let _ = self.release();
+        if !self.keep {
+            let _ = self.release();
+        }
     }
 }

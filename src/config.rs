@@ -62,12 +62,12 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn load(path: &Path) -> Result<Self, String> {
+    pub fn load(path: &Path, required: bool) -> Result<Self, String> {
         match std::fs::read_to_string(path) {
             Ok(text) => toml::from_str::<Self>(&text)
                 .map_err(|e| format!("{}: {e}", path.display()))?
                 .validated(),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && !required => Ok(Self::default()),
             Err(e) => Err(format!("{}: {e}", path.display())),
         }
     }
@@ -120,4 +120,13 @@ pub fn default_path() -> PathBuf {
     #[cfg(not(windows))]
     let base = PathBuf::from("/etc");
     base.join("astral-warden").join("config.toml")
+}
+
+pub fn state_path() -> PathBuf {
+    #[cfg(windows)]
+    return default_path().with_file_name("power-cap.state");
+    #[cfg(target_os = "linux")]
+    return PathBuf::from("/run/astral-warden.power-cap");
+    #[cfg(not(any(windows, target_os = "linux")))]
+    return std::env::temp_dir().join("astral-warden.power-cap");
 }

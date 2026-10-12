@@ -146,5 +146,6 @@ impl<B: Bus> Sensor for It8915<B> {
 pub struct Device {
     pub name: String,
     pub pci: Option<PciId>,
+    pub bus: Option<u32>,
     pub sensor: Box<dyn Sensor>,
 }

@@ -23,7 +23,7 @@ pub fn open_device() -> Result<Device, String> {
 }
 
 pub fn single_instance() -> Result<Lock, String> {
-    unix::lock(&std::env::temp_dir().join("astral-warden.lock"))
+    unix::lock(&[std::env::temp_dir().join("astral-warden.lock")])
 }
 
 pub fn run(warden: Warden, cfg: &Config) -> Result<(), String> {

@@ -122,6 +122,7 @@ pub fn open_device() -> Result<Device, String> {
                 return Ok(Device {
                     name: format!("{model} at {bdf} via /dev/i2c-{n}"),
                     pci: Some(pci),
+                    bus: bdf.split(':').nth(1).and_then(|b| u32::from_str_radix(b, 16).ok()),
                     sensor: Box::new(sensor),
                 });
             }
@@ -132,8 +133,10 @@ pub fn open_device() -> Result<Device, String> {
 }
 
 pub fn single_instance() -> Result<Lock, String> {
-    unix::lock(Path::new("/run/lock/astral-warden.lock"))
-        .or_else(|_| unix::lock(&std::env::temp_dir().join("astral-warden.lock")))
+    unix::lock(&[
+        PathBuf::from("/run/lock/astral-warden.lock"),
+        std::env::temp_dir().join("astral-warden.lock"),
+    ])
 }
 
 struct Desktop;
@@ -255,26 +258,31 @@ impl Init {
                     .ok_or("no runsvdir found")?;
                 let link = Path::new(dir).join("astral-warden");
                 match std::os::unix::fs::symlink(RUNIT_SV, &link) {
-                    Err(e) if e.kind() != ErrorKind::AlreadyExists => Err(format!("{}: {e}", link.display())),
-                    _ => Ok(()),
+                    Ok(()) => Ok(()),
+                    Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+                        spawn_quiet("sv", &["restart", &link.to_string_lossy()])
+                    }
+                    Err(e) => Err(format!("{}: {e}", link.display())),
                 }
             }
         }
     }
 
     fn disable(self) {
-        let _ = match self {
-            Self::Systemd => spawn_quiet("systemctl", &["disable", "--now", "astral-warden.service"]),
-            Self::OpenRc => spawn_quiet("rc-service", &["astral-warden", "stop"])
-                .and_then(|()| spawn_quiet("rc-update", &["del", "astral-warden", "default"])),
-            Self::Runit => {
-                let _ = spawn_quiet("sv", &["down", "astral-warden"]);
-                RUNSVDIRS
-                    .iter()
-                    .for_each(|d| drop(fs::remove_file(Path::new(d).join("astral-warden"))));
-                fs::remove_dir_all(RUNIT_SV).map_err(|e| e.to_string())
+        match self {
+            Self::Systemd => drop(spawn_quiet("systemctl", &["disable", "--now", "astral-warden.service"])),
+            Self::OpenRc => {
+                let _ = spawn_quiet("rc-service", &["astral-warden", "stop"]);
+                let _ = spawn_quiet("rc-update", &["del", "astral-warden", "default"]);
             }
-        };
+            Self::Runit => {
+                for link in RUNSVDIRS.iter().map(|d| Path::new(d).join("astral-warden")) {
+                    let _ = spawn_quiet("sv", &["down", &link.to_string_lossy()]);
+                    let _ = fs::remove_file(link);
+                }
+                let _ = fs::remove_dir_all(RUNIT_SV);
+            }
+        }
     }
 }
 
