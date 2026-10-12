@@ -27,7 +27,7 @@ use windows_sys::Win32::Security::{
 };
 use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole, GetConsoleWindow};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX};
 use windows_sys::Win32::System::Shutdown::{
     InitiateSystemShutdownExW, SHTDN_REASON_FLAG_PLANNED, SHTDN_REASON_MAJOR_HARDWARE, SHTDN_REASON_MINOR_ENVIRONMENT,
 };
@@ -52,6 +52,7 @@ const TASK: &str = "AstralWarden";
 const WM_TRAY: u32 = WM_APP + 1;
 const POLL_TIMER: usize = 1;
 const WM_AUTOSTART: u32 = WM_APP + 2;
+const TIP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 const MENU_INFO: usize = 9;
 const MENU_AUTOSTART: usize = 13;
 const MENU_CONFIG: usize = 10;
@@ -73,6 +74,7 @@ struct App {
     config: PathBuf,
     started: Instant,
     autostart: bool,
+    shown: Option<(Tone, Instant)>,
 }
 
 impl App {
@@ -83,6 +85,14 @@ impl App {
             Phase::Halted => Tone::Crit,
         };
 
+        if self
+            .shown
+            .is_some_and(|(shown, at)| shown == tone && at.elapsed() < TIP_INTERVAL)
+        {
+            return;
+        }
+
+        self.shown = Some((tone, Instant::now()));
         self.tray
             .update(tone, &format!("Astral Warden\n{}", self.warden.summary()));
     }
@@ -142,7 +152,8 @@ pub fn open_device() -> Result<Device, String> {
         };
 
         return Ok(Device {
-            name: format!("{model} via {source}"),
+            name: model,
+            detail: format!("[{pci}] via {source}"),
             pci: Some(pci),
             bus: api.bus(gpu),
             sensor: Box::new(Fallback {
@@ -269,8 +280,8 @@ struct MenuInfo {
 fn menu_info() -> Option<MenuInfo> {
     with_app(|app| {
         let mut rows = app.warden.details();
-        if let Some(mb) = memory_mb() {
-            rows.push(("Memory".into(), format!("{mb:.1} MB")));
+        if let Some((working, private)) = memory() {
+            rows.push(("Memory".into(), format!("{working:.1} MB ({private:.1} private)")));
         }
         rows.push(("Uptime".into(), uptime(app.started)));
 
@@ -328,7 +339,16 @@ fn show_menu(hwnd: HWND) {
             let _ = Config::write_default(&info.config);
             open_in_shell(&info.config);
         }
-        MENU_LOG => open_in_shell(&log_path()),
+        MENU_LOG if log::has_file() => open_in_shell(&log_path()),
+        MENU_LOG => {
+            with_app(|app| {
+                app.tray.balloon(
+                    Severity::Info,
+                    "Astral Warden",
+                    "Nothing logged yet. The log starts at the first warning.",
+                )
+            });
+        }
         MENU_EXIT => unsafe {
             DestroyWindow(hwnd);
         },
@@ -438,6 +458,7 @@ pub fn run(warden: Warden, cfg: &Config, config: &Path) -> Result<(), String> {
         config: config.to_path_buf(),
         started: Instant::now(),
         autostart: autostart_enabled(),
+        shown: None,
     };
 
     app.refresh();
@@ -658,15 +679,20 @@ pub fn uninstall(background: bool) -> Result<(), String> {
     Ok(())
 }
 
+fn failed(what: &str, error: &str) {
+    log::arm();
+    log!("{what}: {error}");
+}
+
 fn toggle_autostart(hwnd: HWND, enable: bool, config: PathBuf) {
     let hwnd = hwnd as isize;
 
     std::thread::spawn(move || {
         let ok = match (is_admin(), enable) {
             (true, true) => install(&config, true)
-                .inspect_err(|e| log!("enable autostart: {e}"))
+                .inspect_err(|e| failed("enable autostart", e))
                 .is_ok(),
-            (true, false) => uninstall(true).inspect_err(|e| log!("disable autostart: {e}")).is_ok(),
+            (true, false) => uninstall(true).inspect_err(|e| failed("disable autostart", e)).is_ok(),
             (false, true) => relaunch_elevated(&install_args(&config, true), true).is_ok_and(|code| code == 0),
             (false, false) => relaunch_elevated(&uninstall_args(true), true).is_ok_and(|code| code == 0),
         };
@@ -675,11 +701,13 @@ fn toggle_autostart(hwnd: HWND, enable: bool, config: PathBuf) {
     });
 }
 
-fn memory_mb() -> Option<f64> {
-    let mut counters: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
-    let size = size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-    let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, size) } != 0;
-    ok.then(|| counters.WorkingSetSize as f64 / (1024.0 * 1024.0))
+pub fn memory() -> Option<(f64, f64)> {
+    let mut counters: PROCESS_MEMORY_COUNTERS_EX = unsafe { std::mem::zeroed() };
+    let size = size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32;
+    let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), (&raw mut counters).cast(), size) } != 0;
+
+    let mb = |bytes: usize| bytes as f64 / (1024.0 * 1024.0);
+    ok.then(|| (mb(counters.WorkingSetSize), mb(counters.PrivateUsage)))
 }
 
 fn uptime(since: Instant) -> String {

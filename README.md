@@ -1,21 +1,28 @@
-<img src="assets/icon.svg" width="96" alt="">
+<p align="center"><img src="assets/icon.svg" width="96" alt=""></p>
 
-# astral-warden
+<h1 align="center">Astral Warden</h1>
 
-Per-pin 12V-2x6 watchdog for ASUS ROG Astral RTX 5090 / 5080.
+<p align="center">Per-pin 12V-2x6 watchdog for ASUS ROG Astral RTX 5090 / 5080<br>Windows 11 · Linux</p>
 
-Warn → cap power to 80% → shut down.
+## Levels
+
+| | Level | Trigger (default) | Action |
+|:-:|---|---|---|
+| <img src="assets/icon.svg" width="32" alt="green"> | OK | every pin under 9.5 A, balance within 30% | check every 0.5 s |
+| <img src="assets/icon-warn.svg" width="32" alt="amber"> | Warning | a pin at 9.5 A+ or 30%+ off balance for 3 s | notify, cap power to 80%, shut down if not recovered in 10 s |
+| <img src="assets/icon-crit.svg" width="32" alt="red"> | Critical | a pin at 13 A+ or 60%+ off balance for 2 s | shut down |
 
 ## Install
 
-**Windows 11**: unzip a [release](../../releases), run `astral-warden.exe install`.
+**Windows 11**: download the zip from [Releases](../../releases), run `astral-warden.exe`, right-click the tray icon, tick **Start at logon**.
 
 **Linux** (systemd, OpenRC, runit): `sudo ./astral-warden install`
 
 ## Use
 
 ```
-astral-warden status
+astral-warden status           one reading
+astral-warden status --watch   live readings
 ```
 
 | | Config |

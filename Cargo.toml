@@ -1,6 +1,6 @@
 [package]
 name = "astral-warden"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Per-pin 12V-2x6 watchdog for ASUS ROG Astral GPUs"

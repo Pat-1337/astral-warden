@@ -85,6 +85,8 @@ When there are several GPUs, NVML is matched by PCI IDs and bus number.
 ## Footprint
 
 - One thread. Windows uses a message-loop timer; Linux uses a sleep loop.
+- Per tick: one I2C transaction and the state machine. The tray tooltip is refreshed at most every 5 s, and immediately when the state colour changes. The NVML board-power check (only used when the pins read near 0 A) runs at most every 5 s.
+- No disk writes during normal operation. See [Log](install.md#log).
 - Each sample is one 24-byte I2C transaction.
 - The binary is about 0.7 MB, with no runtime dependencies beyond the NVIDIA driver (and glibc on Linux).
 - Only one instance runs: a `Global\AstralWarden` mutex on Windows, an `flock` on `/run/lock/astral-warden.lock` on Linux.

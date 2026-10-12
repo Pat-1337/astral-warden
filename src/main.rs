@@ -14,12 +14,13 @@ mod warden;
 use config::Config;
 use hardware::Device;
 use power::PowerCap;
-use sensor::Simulated;
+use sensor::{Sensor, Simulated};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
 use warden::Warden;
 
-const USAGE: &str = "astral-warden [run|status|install|uninstall] [--config <path>] [--wait] [--background]";
+const USAGE: &str = "astral-warden [run|status|install|uninstall] [--config <path>] [--wait] [--background] [--watch]";
 const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 enum Command {
@@ -36,11 +37,13 @@ struct Args {
     explicit: bool,
     wait: bool,
     background: bool,
+    watch: bool,
 }
 
 fn parse() -> Result<Args, String> {
     let mut command = Command::Run;
-    let (mut config, mut explicit, mut wait, mut background) = (config::default_path(), false, false, false);
+    let (mut config, mut explicit, mut wait, mut background, mut watch) =
+        (config::default_path(), false, false, false, false);
     let mut args = std::env::args().skip(1);
 
     while let Some(arg) = args.next() {
@@ -51,6 +54,7 @@ fn parse() -> Result<Args, String> {
             "uninstall" => command = Command::Uninstall,
             "--wait" => wait = true,
             "--background" => background = true,
+            "--watch" => watch = true,
             "-c" | "--config" => {
                 let path = PathBuf::from(args.next().ok_or("--config needs a path")?);
                 config = std::path::absolute(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -68,13 +72,15 @@ fn parse() -> Result<Args, String> {
         explicit,
         wait,
         background,
+        watch,
     })
 }
 
 fn open(cfg: &Config) -> Result<Device, String> {
     match &cfg.simulate {
         Some(path) => Ok(Device {
-            name: format!("simulated ({})", path.display()),
+            name: "Simulated".into(),
+            detail: path.display().to_string(),
             pci: None,
             bus: None,
             sensor: Box::new(Simulated(path.clone())),
@@ -83,16 +89,47 @@ fn open(cfg: &Config) -> Result<Device, String> {
     }
 }
 
-fn status(cfg: &Config) -> Result<(), String> {
+fn watch_loop(sensor: &mut dyn Sensor, cap: &PowerCap, poll: Duration) -> Result<(), String> {
+    loop {
+        let reading = match sensor.read() {
+            Ok(r) => {
+                let (pin, amps) = r.hottest();
+                format!(
+                    "{:5.1} A {:4.0} W  hottest pin {} {amps:5.2} A",
+                    r.total(),
+                    r.watts(),
+                    pin + 1
+                )
+            }
+            Err(e) => e,
+        };
+
+        let board = cap.watts().map_or(String::new(), |w| format!("  board {w:.0} W"));
+        let memory = platform::memory().map_or(String::new(), |(working, private)| {
+            format!("  memory {working:.1} MB, private {private:.1} MB")
+        });
+
+        println!("{reading}{board}{memory}");
+        std::thread::sleep(poll);
+    }
+}
+
+fn status(cfg: &Config, watch: bool) -> Result<(), String> {
     let Device {
         name,
+        detail,
         pci,
         bus,
         mut sensor,
     } = open(cfg)?;
     let cap = PowerCap::new(pci, bus, cfg.power_cap.percent, config::state_path());
 
-    println!("device   {name}");
+    println!("device   {name} {detail}");
+
+    if watch {
+        return watch_loop(sensor.as_mut(), &cap, cfg.poll());
+    }
+
     let reading = sensor.read()?;
     for (pin, (volts, amps)) in reading.volts.iter().zip(reading.amps).enumerate() {
         println!("pin {}    {amps:5.2} A  {volts:5.2} V", pin + 1);
@@ -130,9 +167,15 @@ fn lock(wait: bool) -> Result<platform::Lock, String> {
 
 fn run(cfg: Config, config_path: &Path, wait: bool) -> Result<(), String> {
     let _lock = lock(wait)?;
-    let Device { name, pci, bus, sensor } = open(&cfg)?;
+    let Device {
+        name,
+        detail,
+        pci,
+        bus,
+        sensor,
+    } = open(&cfg)?;
 
-    log!("watching {name}");
+    log!("watching {name} {detail}");
     let mut cap = PowerCap::new(pci, bus, cfg.power_cap.percent, config::state_path());
     cap.resume();
 
@@ -145,7 +188,7 @@ fn main() -> ExitCode {
     let result = parse().and_then(|args| match args.command {
         Command::Install => platform::install(&args.config, args.background),
         Command::Uninstall => platform::uninstall(args.background),
-        Command::Status => Config::load(&args.config, args.explicit).and_then(|cfg| status(&cfg)),
+        Command::Status => Config::load(&args.config, args.explicit).and_then(|cfg| status(&cfg, args.watch)),
         Command::Run => Config::load(&args.config, args.explicit).and_then(|cfg| run(cfg, &args.config, args.wait)),
         Command::Print(text) => {
             println!("{text}");
@@ -156,6 +199,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
+            log::arm();
             log!("{e}");
             platform::fatal(&e);
             ExitCode::FAILURE

@@ -30,7 +30,7 @@ Hover over the icon for the hottest pin and the board power. Right-click it for:
 | Section | Shows |
 |---|---|
 | Header | version and detected board, with the sensor source |
-| Readings | state, current and voltage for each pin, total current and power, balance, board power against its limit, power cap state, shutdown arming, memory use (working set), uptime |
+| Readings | state, current and voltage for each pin, total current and power, balance, board power against its limit, power cap state, shutdown arming, memory use (working set and private), uptime |
 | Start at logon | checkbox that registers or removes the logon task, with a UAC prompt if not elevated; monitoring continues meanwhile |
 | Actions | Open config, Open log, Exit |
 
@@ -78,3 +78,16 @@ astral-warden status
 ```
 
 This prints the detected board, each pin's current and voltage, total power, imbalance, the NVML power limit, and the verdict. On Linux, run it with `sudo`.
+
+`astral-warden status --watch` prints a live line each poll interval: total current and power, the hottest pin, NVML board power, and the process's own memory. Run it without the tray, it shows whether memory stays flat.
+
+## Log
+
+Nothing is written to disk until the first warning, critical event, or error. From then on, every event for that session goes to:
+
+| OS | Log |
+|---|---|
+| Windows | `C:\ProgramData\astral-warden\astral-warden.log` (rotated at 1 MB) |
+| Linux | the service log: journald, `/var/log/astral-warden.log` on OpenRC, or runit's logger |
+
+The config is read once at start. Restart after editing it.

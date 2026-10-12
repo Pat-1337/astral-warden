@@ -38,6 +38,10 @@ pub fn uninstall(_: bool) -> Result<(), String> {
     install(Path::new(""), false)
 }
 
+pub fn memory() -> Option<(f64, f64)> {
+    None
+}
+
 pub fn attach_console() {}
 
 pub fn fatal(_: &str) {}

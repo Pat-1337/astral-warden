@@ -69,7 +69,7 @@ impl PciId {
         let gpu = GPUS.iter().find(|g| g.0 == self.device)?.1;
         let board = BOARDS.iter().find(|b| b.0 == self.sub_device)?.1;
 
-        Some(format!("ASUS {board} {gpu} [{self}]"))
+        Some(format!("{board} {}", gpu.trim_start_matches("RTX ")))
     }
 }
 
@@ -151,6 +151,7 @@ impl<B: Bus> Sensor for It8915<B> {
 
 pub struct Device {
     pub name: String,
+    pub detail: String,
     pub pci: Option<PciId>,
     pub bus: Option<u32>,
     pub sensor: Box<dyn Sensor>,

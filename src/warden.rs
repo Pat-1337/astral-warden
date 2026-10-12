@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 const IDLE_PIN_AMPS: f32 = 1.0;
 const LOADED_BOARD_WATTS: f32 = 150.0;
 const SHUTDOWN_RETRY: Duration = Duration::from_secs(15);
+const BOARD_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -30,6 +31,7 @@ pub struct Warden {
     hold_error: bool,
     release_error: bool,
     shutdown: Option<(String, Instant)>,
+    board: Option<(Instant, Option<f32>)>,
 }
 
 impl Warden {
@@ -49,6 +51,7 @@ impl Warden {
             hold_error: false,
             release_error: false,
             shutdown: None,
+            board: None,
         }
     }
 
@@ -94,12 +97,12 @@ impl Warden {
         }
 
         if let (Some(watts), Some(limit)) = (self.cap.watts(), self.cap.limit_watts()) {
-            rows.push(("Board".into(), format!("{watts:.0} W of {limit:.0} W limit")));
+            rows.push(("Board".into(), format!("{watts:.0} / {limit:.0} W")));
         }
 
         let cap = match (self.cfg.power_cap.enabled, self.cap.available(), self.cap.engaged()) {
             (false, _, _) => "disabled".to_owned(),
-            (true, Err(e), _) => format!("unavailable ({e})"),
+            (true, Err(_), _) => "unavailable".to_owned(),
             (true, Ok(()), true) => format!("engaged at {}%", self.cfg.power_cap.percent),
             (true, Ok(()), false) => format!("armed ({}%)", self.cfg.power_cap.percent),
         };
@@ -125,11 +128,22 @@ impl Warden {
         }
     }
 
+    fn board_watts(&mut self) -> Option<f32> {
+        match self.board {
+            Some((at, watts)) if at.elapsed() < BOARD_INTERVAL => watts,
+            _ => {
+                let watts = self.cap.watts();
+                self.board = Some((Instant::now(), watts));
+                watts
+            }
+        }
+    }
+
     fn sample(&mut self) -> Result<Reading, String> {
         let reading = self.sensor.read()?;
 
         if reading.total() < IDLE_PIN_AMPS
-            && let Some(watts) = self.cap.watts().filter(|w| *w > LOADED_BOARD_WATTS)
+            && let Some(watts) = self.board_watts().filter(|w| *w > LOADED_BOARD_WATTS)
         {
             return Err(format!(
                 "pins read {:.1} A while the board draws {watts:.0} W",
@@ -288,6 +302,10 @@ impl Warden {
     }
 
     fn emit(&self, host: &mut impl Host, severity: Severity, title: &str, body: &str) {
+        if severity != Severity::Info && log::arm() {
+            log!("watching {}", self.name);
+        }
+
         log!("[{severity:?}] {title}: {body} ({})", self.summary());
         host.notify(severity, title, body);
     }

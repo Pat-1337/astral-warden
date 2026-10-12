@@ -6,17 +6,42 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_BYTES: u64 = 1 << 20;
 
-static FILE: Mutex<Option<(PathBuf, File)>> = Mutex::new(None);
+struct Sink {
+    path: Option<PathBuf>,
+    file: Option<File>,
+    armed: bool,
+}
+
+static SINK: Mutex<Sink> = Mutex::new(Sink {
+    path: None,
+    file: None,
+    armed: false,
+});
+
+fn sink() -> std::sync::MutexGuard<'static, Sink> {
+    SINK.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn to_file(path: PathBuf) {
+    sink().path = Some(path);
+}
+
+pub fn arm() -> bool {
+    !std::mem::replace(&mut sink().armed, true)
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn has_file() -> bool {
+    sink().path.as_ref().is_some_and(|p| p.exists())
+}
+
+fn open(path: &PathBuf) -> Option<File> {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
 
-    if let Ok(file) = OpenOptions::new().create(true).append(true).open(&path) {
-        *FILE.lock().unwrap_or_else(|e| e.into_inner()) = Some((path, file));
-    }
+    OpenOptions::new().create(true).append(true).open(path).ok()
 }
 
 pub fn write(msg: &str) {
@@ -27,15 +52,29 @@ pub fn write(msg: &str) {
 
     let _ = std::io::stderr().write_all(line.as_bytes());
 
-    let mut slot = FILE.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((path, file)) = slot.as_mut() {
-        if file.metadata().is_ok_and(|m| m.len() > MAX_BYTES) {
-            let _ = std::fs::rename(&*path, path.with_extension("log.old"));
-            if let Ok(fresh) = OpenOptions::new().create(true).append(true).open(&*path) {
-                *file = fresh;
-            }
-        }
+    let mut sink = sink();
+    let Sink {
+        path: Some(path),
+        file,
+        armed: true,
+    } = &mut *sink
+    else {
+        return;
+    };
 
+    if file
+        .as_ref()
+        .is_some_and(|f| f.metadata().is_ok_and(|m| m.len() > MAX_BYTES))
+    {
+        let _ = std::fs::rename(&*path, path.with_extension("log.old"));
+        *file = None;
+    }
+
+    if file.is_none() {
+        *file = open(path);
+    }
+
+    if let Some(file) = file {
         let _ = file.write_all(line.as_bytes());
     }
 }

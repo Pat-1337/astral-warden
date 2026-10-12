@@ -34,6 +34,14 @@ When both Homebrew and rustup Rust are installed, put rustup's toolchain first i
 export PATH="$(dirname "$(rustup which rustc)"):$PATH"
 ```
 
+## Windows resources
+
+`build.rs` turns `assets/icon.ico` into a `.res` file that is linked into the `.exe`, with no `rc.exe` needed. The `.res` also includes version info (shown in Task Manager as "Astral Warden") and an application manifest (Per-Monitor-V2 DPI, Common Controls v6, `asInvoker`).
+
+`assets/icon.ico` holds PNG frames from 16 to 256 px, rendered from the same geometry as `assets/icon.svg`. The status variants `icon-warn.svg` and `icon-crit.svg` only swap the colours.
+
+`.cargo/config.toml` links the MSVC C runtime statically, so the release `.exe` doesn't need the Visual C++ Redistributable (`VCRUNTIME140.dll`).
+
 ## Layout
 
 | File | Role |
@@ -45,6 +53,8 @@ export PATH="$(dirname "$(rustup which rustc)"):$PATH"
 | `src/platform/windows/` | NVAPI I2C, tray, task install, shutdown |
 | `src/platform/linux.rs` | sysfs detection, i2c-dev, init install, poweroff |
 | `init/` | Service templates, embedded at build time |
+| `build.rs` | Windows icon, version info, and manifest resources |
+| `assets/` | Icon (SVG per level, multi-size ICO) |
 
 ## Releases
 

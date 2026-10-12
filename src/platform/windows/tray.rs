@@ -143,7 +143,8 @@ impl Tray {
             return;
         }
 
-        if self.tone != Some(tone) {
+        let recolor = self.tone != Some(tone);
+        if recolor {
             let old = std::mem::replace(&mut self.data.hIcon, draw(tone));
             if !old.is_null() {
                 unsafe { DestroyIcon(old) };
@@ -151,11 +152,12 @@ impl Tray {
         }
 
         self.tone = Some(tone);
-        self.tip = tip.to_owned();
+        self.tip.clear();
+        self.tip.push_str(tip);
         copy_wide(&mut self.data.szTip, tip);
 
         if self.added {
-            self.data.uFlags = NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+            self.data.uFlags = NIF_TIP | NIF_SHOWTIP | if recolor { NIF_ICON } else { 0 };
             self.added = unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.data) } != 0;
         } else {
             self.add();

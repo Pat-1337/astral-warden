@@ -126,7 +126,8 @@ pub fn open_device() -> Result<Device, String> {
         match sensor_adapter(&dir).and_then(|n| Ok((n, It8915::probe(I2cDev::open(n)?)?))) {
             Ok((n, sensor)) => {
                 return Ok(Device {
-                    name: format!("{model} at {bdf} via /dev/i2c-{n}"),
+                    name: model,
+                    detail: format!("[{pci}] at {bdf} via /dev/i2c-{n}"),
                     pci: Some(pci),
                     bus: bdf.split(':').nth(1).and_then(|b| u32::from_str_radix(b, 16).ok()),
                     sensor: Box::new(sensor),
@@ -380,6 +381,15 @@ pub fn uninstall(_: bool) -> Result<(), String> {
 
     println!("uninstalled; config kept at {}", config::default_path().display());
     Ok(())
+}
+
+pub fn memory() -> Option<(f64, f64)> {
+    let text = fs::read_to_string("/proc/self/statm").ok()?;
+    let mut pages = text.split_whitespace().skip(1).map(|f| f.parse::<f64>().ok());
+    let (resident, shared) = (pages.next()??, pages.next()??);
+
+    let mb = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as f64 / (1024.0 * 1024.0);
+    Some((resident * mb, (resident - shared) * mb))
 }
 
 pub fn attach_console() {}
