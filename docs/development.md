@@ -50,6 +50,7 @@ export PATH="$(dirname "$(rustup which rustc)"):$PATH"
 | `src/guard.rs` | State machine (pure, no I/O) |
 | `src/warden.rs` | Glues sensor, guard, power cap, and notifications |
 | `src/power.rs` | NVML power limit (loaded at runtime) |
+| `src/display.rs` | Number and name formatting for everything shown to users |
 | `src/platform/windows/` | NVAPI I2C, tray, task install, shutdown |
 | `src/platform/linux.rs` | sysfs detection, i2c-dev, init install, poweroff |
 | `init/` | Service templates, embedded at build time |

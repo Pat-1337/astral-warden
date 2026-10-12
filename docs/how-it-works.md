@@ -72,7 +72,9 @@ Each sample is graded:
 
 | Action | Windows | Linux |
 |---|---|---|
-| Notify | tray balloon / toast | `notify-send` per session, plus log |
+| Notify | toast with the connector icon in the level's colour | `notify-send` per session with a dialog icon |
+| Alarm | system sound every 2 s during a warning, *Critical Stop* on critical (`alarm = false` to mute) | `canberra-gtk-play` per session, plus the console bell |
+| Last shutdown | at the next start: a toast and a message box with the time and reason | a notification and a log line |
 | Cap | NVML `nvmlDeviceSetPowerManagementLimit` | same |
 | Shutdown | `InitiateSystemShutdownExW` (force apps closed, reason "hardware: environment"), falling back to `shutdown /s /f /t 0` | `systemctl poweroff` → `shutdown -P now` → `poweroff` → `reboot(2)` |
 

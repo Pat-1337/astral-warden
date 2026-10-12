@@ -3,6 +3,7 @@ mod nvapi;
 mod tray;
 
 use crate::config::{self, Config};
+use crate::display;
 use crate::guard::Phase;
 use crate::hardware::{Device, It8915, no_device};
 use crate::log;
@@ -21,11 +22,13 @@ use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM, LRESULT, LUID, POINT,
     WPARAM,
 };
+use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ALIAS, SND_ASYNC, SND_NODEFAULT};
 use windows_sys::Win32::Security::{
     AdjustTokenPrivileges, LUID_AND_ATTRIBUTES, LookupPrivilegeValueW, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES,
     TOKEN_PRIVILEGES, TOKEN_QUERY,
 };
 use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole, GetConsoleWindow};
+use windows_sys::Win32::System::Diagnostics::Debug::MessageBeep;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX};
 use windows_sys::Win32::System::Shutdown::{
@@ -41,11 +44,12 @@ use windows_sys::Win32::UI::Shell::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, ChangeWindowMessageFilterEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
-    DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, KillTimer, MB_ICONERROR, MB_ICONINFORMATION,
-    MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MF_UNCHECKED, MSG, MSGFLT_ALLOW, MessageBoxW, PostMessageW,
-    PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SW_HIDE, SW_SHOWNORMAL, SetForegroundWindow,
-    SetMenuDefaultItem, SetTimer, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
-    WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION, WM_NULL, WM_QUERYENDSESSION, WM_TIMER, WNDCLASSW,
+    DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, KillTimer, MB_ICONERROR, MB_ICONHAND,
+    MB_ICONINFORMATION, MB_ICONWARNING, MB_SETFOREGROUND, MB_TOPMOST, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING,
+    MF_UNCHECKED, MSG, MSGFLT_ALLOW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
+    RegisterWindowMessageW, SW_HIDE, SW_SHOWNORMAL, SetForegroundWindow, SetMenuDefaultItem, SetTimer, TPM_NONOTIFY,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP, WM_CONTEXTMENU, WM_DESTROY,
+    WM_ENDSESSION, WM_NULL, WM_QUERYENDSESSION, WM_TIMER, WNDCLASSW,
 };
 
 const TASK: &str = "AstralWarden";
@@ -95,13 +99,39 @@ impl App {
 
         self.shown = Some((tone, Instant::now()));
         self.tray
-            .update(tone, &format!("Astral Warden\n{}", self.warden.summary()));
+            .update(tone, &format!("{}\n{}", display::app(), self.warden.summary()));
     }
 }
 
 impl Host for Tray {
     fn notify(&mut self, severity: Severity, title: &str, body: &str) {
         self.balloon(severity, title, body);
+    }
+
+    fn alert(&mut self, title: &str, body: &str) {
+        let (title, body) = (wide(title), wide(body));
+        std::thread::spawn(move || unsafe {
+            let flags = MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND;
+            MessageBoxW(std::ptr::null_mut(), body.as_ptr(), title.as_ptr(), flags);
+        });
+    }
+
+    fn alarm(&mut self, severity: Severity) {
+        let alias = wide(match severity {
+            Severity::Crit => "SystemHand",
+            Severity::Info | Severity::Warn => "SystemExclamation",
+        });
+
+        let played = unsafe {
+            PlaySoundW(
+                alias.as_ptr(),
+                std::ptr::null_mut(),
+                SND_ALIAS | SND_ASYNC | SND_NODEFAULT,
+            )
+        } != 0;
+        if !played {
+            unsafe { MessageBeep(MB_ICONHAND) };
+        }
     }
 
     fn shutdown(&mut self, reason: &str) -> Result<(), String> {
@@ -282,12 +312,20 @@ fn menu_info() -> Option<MenuInfo> {
     with_app(|app| {
         let mut rows = app.warden.details();
         if let Some((working, private)) = memory() {
-            rows.push(("Memory".into(), format!("{working:.1} MB ({private:.1} private)")));
+            let memory = match display::hex() {
+                true => format!(
+                    "{} ({} private)",
+                    display::count((working * 1024.0) as u64, "KiB"),
+                    display::count((private * 1024.0) as u64, "KiB")
+                ),
+                false => format!("{working:.1} MB ({private:.1} private)"),
+            };
+            rows.push(("Memory".into(), memory));
         }
         rows.push(("Uptime".into(), uptime(app.started)));
 
         MenuInfo {
-            title: format!("Astral Warden {}", env!("CARGO_PKG_VERSION")),
+            title: format!("{} {}", display::app(), env!("CARGO_PKG_VERSION")),
             device: app.warden.name().to_owned(),
             rows,
             autostart: app.autostart,
@@ -345,7 +383,7 @@ fn show_menu(hwnd: HWND) {
             with_app(|app| {
                 app.tray.balloon(
                     Severity::Info,
-                    "Astral Warden",
+                    display::app(),
                     "Nothing logged yet. The log starts at the first warning.",
                 )
             });
@@ -387,7 +425,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                     (true, false) => (Severity::Info, "No longer starts at logon."),
                     (false, _) => (Severity::Warn, "Changing autostart failed. See the log."),
                 };
-                app.tray.balloon(severity, "Astral Warden", body);
+                app.tray.balloon(severity, display::app(), body);
             });
             0
         }
@@ -740,6 +778,10 @@ pub fn memory() -> Option<(f64, f64)> {
 
 fn uptime(since: Instant) -> String {
     let secs = since.elapsed().as_secs();
+    if display::hex() {
+        return display::count(secs, "s");
+    }
+
     match (secs / 86_400, secs / 3600 % 24, secs / 60 % 60) {
         (0, 0, m) => format!("{m} min"),
         (0, h, m) => format!("{h} h {m} min"),

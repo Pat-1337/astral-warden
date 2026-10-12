@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::display;
 use crate::sensor::{PINS, Reading};
 use std::fmt;
 use std::time::{Duration, Instant};
@@ -18,9 +19,14 @@ pub enum Fault {
 impl fmt::Display for Fault {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Pin { pin, amps } => write!(f, "pin {} at {amps:.1} A", pin + 1),
+            Self::Pin { pin, amps } => write!(f, "{} at {}", display::pin(*pin), display::amps(*amps, 1)),
             Self::Imbalance { pin, deviation } => {
-                write!(f, "pin {} is {:+.0}% off the average", pin + 1, deviation * 100.0)
+                write!(
+                    f,
+                    "{} is {} off the average",
+                    display::pin(*pin),
+                    display::percent(*deviation)
+                )
             }
         }
     }

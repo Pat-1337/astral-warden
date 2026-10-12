@@ -71,6 +71,10 @@ Desktop notifications go through `notify-send` to every logged-in user's session
 
 Uninstall: `sudo astral-warden uninstall`. The config is kept.
 
+When it starts from a double-click, a toast confirms it is running and that the card's pins are readable. Starts at logon are silent.
+
+After a protective shutdown, the next start shows when and why it happened.
+
 ## Check it works
 
 ```

@@ -2,6 +2,7 @@
 #![cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 
 mod config;
+mod display;
 mod dylib;
 mod guard;
 mod hardware;
@@ -59,6 +60,7 @@ fn parse() -> Result<Args, String> {
             "--wait" => wait = true,
             "--background" => background = true,
             "--watch" => watch = true,
+            "--secret" => display::enable_hex(),
             "-c" | "--config" => {
                 let path = PathBuf::from(args.next().ok_or("--config needs a path")?);
                 config = std::path::absolute(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -81,17 +83,31 @@ fn parse() -> Result<Args, String> {
     })
 }
 
+fn secret_name(device: &Device) -> String {
+    match (device.pci, device.bus) {
+        (Some(pci), Some(bus)) => format!("{pci} @ {bus:02x}:00.0"),
+        (Some(pci), None) => pci.to_string(),
+        _ => "0xDEADBEEF".into(),
+    }
+}
+
 fn open(cfg: &Config) -> Result<Device, String> {
-    match &cfg.simulate {
-        Some(path) => Ok(Device {
+    let mut device = match &cfg.simulate {
+        Some(path) => Device {
             name: "Simulated".into(),
             detail: path.display().to_string(),
             pci: None,
             bus: None,
             sensor: Box::new(Simulated(path.clone())),
-        }),
-        None => platform::open_device(),
+        },
+        None => platform::open_device()?,
+    };
+
+    if display::hex() {
+        device.name = secret_name(&device);
     }
+
+    Ok(device)
 }
 
 fn watch_loop(sensor: &mut dyn Sensor, cap: &PowerCap, poll: Duration) -> Result<(), String> {
@@ -100,18 +116,22 @@ fn watch_loop(sensor: &mut dyn Sensor, cap: &PowerCap, poll: Duration) -> Result
             Ok(r) => {
                 let (pin, amps) = r.hottest();
                 format!(
-                    "{:5.1} A {:4.0} W  hottest pin {} {amps:5.2} A",
-                    r.total(),
-                    r.watts(),
-                    pin + 1
+                    "{:>10} {:>9}  hottest {} {}",
+                    display::amps(r.total(), 1),
+                    display::watts(r.watts()),
+                    display::pin(pin),
+                    display::amps(amps, 2)
                 )
             }
             Err(e) => e,
         };
 
-        let board = cap.watts().map_or(String::new(), |w| format!("  board {w:.0} W"));
+        let board = cap
+            .watts()
+            .map_or(String::new(), |w| format!("  board {}", display::watts(w)));
         let memory = platform::memory().map_or(String::new(), |(working, private)| {
-            format!("  memory {working:.1} MB, private {private:.1} MB")
+            let kib = |mb: f64| display::count((mb * 1024.0) as u64, "KiB");
+            format!("  memory {}, private {}", kib(working), kib(private))
         });
 
         println!("{reading}{board}{memory}");
@@ -129,7 +149,7 @@ fn status(cfg: &Config, watch: bool) -> Result<(), String> {
     } = open(cfg)?;
     let cap = PowerCap::new(pci, bus, cfg.power_cap.percent, config::state_path());
 
-    println!("device   {name} {detail}");
+    println!("{:<8} {name} {detail}", "device");
 
     if watch {
         return watch_loop(sensor.as_mut(), &cap, cfg.poll());
@@ -137,22 +157,37 @@ fn status(cfg: &Config, watch: bool) -> Result<(), String> {
 
     let reading = sensor.read()?;
     for (pin, (volts, amps)) in reading.volts.iter().zip(reading.amps).enumerate() {
-        println!("pin {}    {amps:5.2} A  {volts:5.2} V", pin + 1);
+        println!(
+            "{:<8} {:>11}  {:>11}",
+            display::pin(pin),
+            display::amps(amps, 2),
+            display::volts(*volts)
+        );
     }
-    println!("total    {:5.1} A  {:5.0} W", reading.total(), reading.watts());
+    println!(
+        "{:<8} {:>11}  {:>11}",
+        "total",
+        display::amps(reading.total(), 1),
+        display::watts(reading.watts())
+    );
 
     if reading.total() >= cfg.imbalance_min_total_amps {
         let (pin, deviation) = guard::imbalance(&reading);
-        println!("balance  pin {} {:+.0} %", pin + 1, deviation * 100.0);
+        println!("{:<8} {} {}", "balance", display::pin(pin), display::percent(deviation));
     }
 
     match (cap.watts(), cap.limit_watts()) {
-        (Some(w), Some(l)) => println!("board    {w:5.0} W of {l:.0} W limit"),
-        _ => println!("board    power limit n/a ({})", cap.available().err().unwrap_or("?")),
+        (Some(w), Some(l)) => println!("{:<8} {} of {} limit", "board", display::watts(w), display::watts(l)),
+        _ => println!(
+            "{:<8} power limit n/a ({})",
+            "board",
+            cap.available().err().unwrap_or("?")
+        ),
     }
+
     match guard::assess(&reading, cfg) {
-        Some((level, fault)) => println!("verdict  {level:?}: {fault}"),
-        None => println!("verdict  OK"),
+        Some((level, fault)) => println!("{:<8} {level:?}: {fault}", "verdict"),
+        None => println!("{:<8} OK", "verdict"),
     }
 
     Ok(())

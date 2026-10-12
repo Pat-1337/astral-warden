@@ -1,5 +1,6 @@
 use super::unix::{self, detach, spawn_quiet};
 use crate::config::{self, Config};
+use crate::display;
 use crate::hardware::{Bus, Device, IT8915_ADDR, It8915, NVIDIA, PciId, no_device};
 use crate::warden::{Host, Severity, Warden};
 use std::fs::{self, File, OpenOptions};
@@ -177,26 +178,46 @@ fn user_name(uid: libc::uid_t) -> Option<String> {
     })
 }
 
-impl Host for Desktop {
-    fn notify(&mut self, severity: Severity, title: &str, body: &str) {
-        let urgency = match severity {
-            Severity::Info => "normal",
-            Severity::Warn | Severity::Crit => "critical",
-        };
-        let notify = ["-a", "Astral Warden", "-u", urgency, title, body];
-
+impl Desktop {
+    fn in_sessions(program: &str, args: &[&str]) {
         if unsafe { libc::geteuid() } != 0 {
-            return detach(Command::new("notify-send").args(notify));
+            return detach(Command::new(program).args(args));
         }
 
         for (user, bus) in Self::sessions() {
-            let env = format!("DBUS_SESSION_BUS_ADDRESS=unix:path={}", bus.display());
+            let bus_env = format!("DBUS_SESSION_BUS_ADDRESS=unix:path={}", bus.display());
+            let runtime = format!("XDG_RUNTIME_DIR={}", bus.parent().unwrap_or(&bus).display());
             detach(
                 Command::new("runuser")
-                    .args(["-u", &user, "--", "env", &env, "notify-send"])
-                    .args(notify),
+                    .args(["-u", &user, "--", "env", &bus_env, &runtime, program])
+                    .args(args),
             );
         }
+    }
+}
+
+impl Host for Desktop {
+    fn notify(&mut self, severity: Severity, title: &str, body: &str) {
+        let (urgency, icon) = match severity {
+            Severity::Info => ("normal", "dialog-information"),
+            Severity::Warn => ("critical", "dialog-warning"),
+            Severity::Crit => ("critical", "dialog-error"),
+        };
+
+        Self::in_sessions(
+            "notify-send",
+            &["-a", display::app(), "-i", icon, "-u", urgency, title, body],
+        );
+    }
+
+    fn alarm(&mut self, severity: Severity) {
+        let sound = match severity {
+            Severity::Crit => "alarm-clock-elapsed",
+            Severity::Info | Severity::Warn => "dialog-warning",
+        };
+
+        Self::in_sessions("canberra-gtk-play", &["-i", sound]);
+        let _ = fs::write("/dev/console", b"\x07");
     }
 
     fn shutdown(&mut self, reason: &str) -> Result<(), String> {

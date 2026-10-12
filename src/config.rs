@@ -29,6 +29,7 @@ pub struct Config {
     pub recover_secs: u64,
     pub sensor_fail_samples: u32,
     pub shutdown: bool,
+    pub alarm: bool,
     pub power_cap: PowerCap,
     pub simulate: Option<PathBuf>,
 }
@@ -55,6 +56,7 @@ impl Default for Config {
             recover_secs: 10,
             sensor_fail_samples: 6,
             shutdown: true,
+            alarm: true,
             power_cap: PowerCap::default(),
             simulate: None,
         }
@@ -136,4 +138,13 @@ pub fn state_path() -> PathBuf {
     return PathBuf::from("/run/astral-warden.power-cap");
     #[cfg(not(any(windows, target_os = "linux")))]
     return std::env::temp_dir().join("astral-warden.power-cap");
+}
+
+pub fn note_path() -> PathBuf {
+    #[cfg(windows)]
+    return default_path().with_file_name("last-shutdown.txt");
+    #[cfg(target_os = "linux")]
+    return PathBuf::from("/var/lib/astral-warden/last-shutdown");
+    #[cfg(not(any(windows, target_os = "linux")))]
+    return std::env::temp_dir().join("astral-warden.last-shutdown");
 }

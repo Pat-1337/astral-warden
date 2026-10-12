@@ -1,4 +1,5 @@
-use crate::config::Config;
+use crate::config::{self, Config};
+use crate::display;
 use crate::guard::{Action, Guard, Phase, imbalance};
 use crate::log;
 use crate::power::PowerCap;
@@ -9,6 +10,7 @@ const IDLE_PIN_AMPS: f32 = 1.0;
 const LOADED_BOARD_WATTS: f32 = 150.0;
 const SHUTDOWN_RETRY: Duration = Duration::from_secs(15);
 const BOARD_INTERVAL: Duration = Duration::from_secs(5);
+const ALARM_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -19,6 +21,13 @@ pub enum Severity {
 
 pub trait Host {
     fn notify(&mut self, severity: Severity, title: &str, body: &str);
+
+    fn alert(&mut self, title: &str, body: &str) {
+        self.notify(Severity::Warn, title, body);
+    }
+
+    fn alarm(&mut self, severity: Severity);
+
     fn shutdown(&mut self, reason: &str) -> Result<(), String>;
 }
 
@@ -33,6 +42,33 @@ pub struct Warden {
     shutdown: Option<(String, Instant)>,
     board: Option<(Instant, Option<f32>)>,
     last_error: Option<String>,
+    alarm_at: Option<Instant>,
+    note: Option<String>,
+}
+
+fn take_note() -> Option<String> {
+    let path = config::note_path();
+    let note = std::fs::read_to_string(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+
+    Some(note.trim().to_owned()).filter(|n| !n.is_empty())
+}
+
+fn save_note(reason: &str) {
+    let path = config::note_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+
+    let when = log::timestamp().replace('T', " ").replace('Z', " UTC");
+    let _ = std::fs::write(path, format!("{when}\n{reason}"));
+}
+
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map_or(String::new(), |c| c.to_uppercase().chain(chars).collect())
 }
 
 impl Warden {
@@ -54,6 +90,8 @@ impl Warden {
             shutdown: None,
             board: None,
             last_error: None,
+            alarm_at: None,
+            note: take_note(),
         }
     }
 
@@ -69,27 +107,23 @@ impl Warden {
 
     #[cfg_attr(not(windows), allow(dead_code))]
     pub fn greeting(&self) -> (Severity, String, String) {
-        match (self.guard.last(), &self.last_error) {
-            (Some(r), _) => {
-                let (pin, amps) = r.hottest();
-                let body = format!(
-                    "{} found, all 6 pins readable. Hottest: pin {} at {amps:.1} A. Right-click the tray icon for details.",
-                    self.name,
-                    pin + 1
-                );
-                (Severity::Info, "Astral Warden is running".into(), body)
-            }
-            (None, error) => {
-                if let Some(e) = error {
-                    log!("first sensor read failed: {e}");
-                }
-                let body = format!(
-                    "{} found, but its pins can't be read. Turn on HWiNFO Shared Memory Support as a fallback.",
-                    self.name
-                );
-                (Severity::Warn, "Astral Warden: sensor unreadable".into(), body)
-            }
+        if self.guard.last().is_some() {
+            return (
+                Severity::Info,
+                format!("{} is running", display::app()),
+                format!("{} · pins OK", self.name),
+            );
         }
+
+        if let Some(e) = &self.last_error {
+            log!("first sensor read failed: {e}");
+        }
+
+        (
+            Severity::Warn,
+            display::app().into(),
+            format!("{} found, but its pins can't be read.", self.name),
+        )
     }
 
     fn state(&self) -> &'static str {
@@ -108,36 +142,46 @@ impl Warden {
 
         match self.guard.last() {
             Some(r) => {
-                rows.extend(
-                    r.amps.iter().zip(r.volts).enumerate().map(|(pin, (amps, volts))| {
-                        (format!("Pin {}", pin + 1), format!("{amps:.2} A   {volts:.2} V"))
-                    }),
-                );
+                rows.extend(r.amps.iter().zip(r.volts).enumerate().map(|(pin, (amps, volts))| {
+                    let value = format!("{}   {}", display::amps(*amps, 2), display::volts(volts));
+                    (capitalized(&display::pin(pin)), value)
+                }));
 
-                rows.push(("Total".into(), format!("{:.1} A   {:.0} W", r.total(), r.watts())));
+                rows.push((
+                    "Total".into(),
+                    format!("{}   {}", display::amps(r.total(), 1), display::watts(r.watts())),
+                ));
+
                 if r.total() >= self.cfg.imbalance_min_total_amps {
                     let (pin, deviation) = imbalance(&r);
-                    rows.push(("Balance".into(), format!("pin {} {:+.0}%", pin + 1, deviation * 100.0)));
+                    rows.push((
+                        "Balance".into(),
+                        format!("{} {}", display::pin(pin), display::percent(deviation)),
+                    ));
                 }
             }
             None => rows.push(("Pins".into(), "no reading".into())),
         }
 
         if let (Some(watts), Some(limit)) = (self.cap.watts(), self.cap.limit_watts()) {
-            rows.push(("Board".into(), format!("{watts:.0} / {limit:.0} W")));
+            rows.push((
+                "Board".into(),
+                format!("{} / {}", display::watts(watts), display::watts(limit)),
+            ));
         }
 
+        let percent = display::percent(self.cfg.power_cap.percent as f32 / 100.0);
+        let percent = percent.trim_start_matches('+');
         let cap = match (self.cfg.power_cap.enabled, self.cap.available(), self.cap.engaged()) {
             (false, _, _) => "disabled".to_owned(),
             (true, Err(_), _) => "unavailable".to_owned(),
-            (true, Ok(()), true) => format!("engaged at {}%", self.cfg.power_cap.percent),
-            (true, Ok(()), false) => format!("armed ({}%)", self.cfg.power_cap.percent),
+            (true, Ok(()), true) => format!("engaged at {percent}"),
+            (true, Ok(()), false) => format!("armed ({percent})"),
         };
         rows.push(("Power cap".into(), cap));
-        rows.push((
-            "Shutdown".into(),
-            if self.cfg.shutdown { "armed" } else { "disabled" }.into(),
-        ));
+
+        let shutdown = if self.cfg.shutdown { "armed" } else { "disabled" };
+        rows.push(("Shutdown".into(), shutdown.into()));
 
         rows
     }
@@ -149,7 +193,12 @@ impl Warden {
         match self.guard.last() {
             Some(r) => {
                 let (pin, amps) = r.hottest();
-                format!("{state}{capped} · pin {} {amps:.1} A · {:.0} W", pin + 1, r.watts())
+                format!(
+                    "{state}{capped} · {} {} · {}",
+                    display::pin(pin),
+                    display::amps(amps, 1),
+                    display::watts(r.watts())
+                )
             }
             None => format!("{state}{capped}"),
         }
@@ -182,8 +231,18 @@ impl Warden {
     }
 
     pub fn tick(&mut self, host: &mut impl Host) {
+        if let Some(note) = self.note.take() {
+            let body = match note.split_once('\n') {
+                Some((when, reason)) => format!("Last session was shut down at {when}: {reason}."),
+                None => format!("Last session was shut down: {note}."),
+            };
+            self.emit(host, Severity::Warn, "Previous shutdown", &body);
+            host.alert(display::app(), &body);
+        }
+
         if self.guard.phase() == Phase::Halted {
             self.hold(host);
+            self.sound(host);
             self.retry_shutdown(host);
             return;
         }
@@ -199,41 +258,39 @@ impl Warden {
             Some(Action::Warn(fault)) => {
                 let cap = self.engage();
                 let deadline = match self.cfg.shutdown {
-                    true => format!(" Shutdown in {} s unless it recovers.", self.cfg.recover_secs),
+                    true => format!(
+                        " Shutdown in {} unless it recovers.",
+                        display::count(self.cfg.recover_secs, "s")
+                    ),
                     false => String::new(),
                 };
 
-                self.emit(
-                    host,
-                    Severity::Warn,
-                    "12V-2x6 warning",
-                    &format!("{fault}.{cap}{deadline}"),
-                );
+                let body = format!("{}.{cap}{deadline}", capitalized(&fault.to_string()));
+                self.emit(host, Severity::Warn, "12V-2x6 warning", &body);
             }
 
             Some(Action::Critical(fault)) => {
                 let cap = self.engage();
-                let body = format!("{fault}.{cap} Shutdown is disabled in the config.");
+                let body = format!(
+                    "{}.{cap} Shutdown is disabled in the config.",
+                    capitalized(&fault.to_string())
+                );
                 self.emit(host, Severity::Crit, "12V-2x6 CRITICAL", &body);
             }
 
             Some(Action::Recovered) => {
-                let window = self.cfg.power_cap.restore_after_secs;
+                let window = display::count(self.cfg.power_cap.restore_after_secs, "s");
                 let cap = match self.cap.engaged() {
-                    true => format!(" Power cap held for {window} s."),
+                    true => format!(" Power cap held for {window}."),
                     false => String::new(),
                 };
                 let rule = match self.cfg.shutdown {
-                    true => format!(" A new warning within {window} s shuts down."),
+                    true => format!(" A new warning within {window} shuts down."),
                     false => String::new(),
                 };
 
-                self.emit(
-                    host,
-                    Severity::Info,
-                    "12V-2x6 recovered",
-                    &format!("Back within limits.{cap}{rule}"),
-                );
+                let body = format!("Back within limits.{cap}{rule}");
+                self.emit(host, Severity::Info, "12V-2x6 recovered", &body);
             }
 
             Some(Action::SensorLost) => {
@@ -248,6 +305,9 @@ impl Warden {
                 let _ = self.cap.engage();
                 self.cap.keep();
 
+                let fault = capitalized(&fault.to_string());
+                save_note(&fault);
+
                 let reason = format!("{fault}. Shutting down to protect the connector.");
                 self.emit(host, Severity::Crit, "12V-2x6 CRITICAL", &reason);
 
@@ -256,8 +316,26 @@ impl Warden {
             }
         }
 
+        self.sound(host);
+
         if self.guard.phase() == Phase::Normal && self.cap.engaged() {
             self.restore(host);
+        }
+    }
+
+    fn sound(&mut self, host: &mut impl Host) {
+        let severity = match self.guard.phase() {
+            Phase::Warning { escalated: true, .. } | Phase::Halted => Severity::Crit,
+            Phase::Warning { .. } => Severity::Warn,
+            _ => {
+                self.alarm_at = None;
+                return;
+            }
+        };
+
+        if self.cfg.alarm && self.alarm_at.is_none_or(|at| at.elapsed() >= ALARM_INTERVAL) {
+            self.alarm_at = Some(Instant::now());
+            host.alarm(severity);
         }
     }
 
@@ -287,23 +365,15 @@ impl Warden {
         match self.cap.release() {
             Ok(Some(mw)) => {
                 self.release_error = false;
-                self.emit(
-                    host,
-                    Severity::Info,
-                    "Power limit restored",
-                    &format!("{} W", mw / 1000),
-                );
+                let body = display::watts(mw as f32 / 1000.0);
+                self.emit(host, Severity::Info, "Power limit restored", &body);
             }
 
             Ok(None) => {}
             Err(e) if !self.release_error => {
                 self.release_error = true;
-                self.emit(
-                    host,
-                    Severity::Warn,
-                    "Power limit restore failed",
-                    &format!("{e}. Retrying."),
-                );
+                let body = format!("{e}. Retrying.");
+                self.emit(host, Severity::Warn, "Power limit restore failed", &body);
             }
 
             Err(_) => {}
@@ -312,7 +382,7 @@ impl Warden {
 
     fn engage(&mut self) -> String {
         match self.cfg.power_cap.enabled.then(|| self.cap.engage()) {
-            Some(Ok(mw)) => format!(" Power limited to {} W.", mw / 1000),
+            Some(Ok(mw)) => format!(" Power limited to {}.", display::watts(mw as f32 / 1000.0)),
             Some(Err(e)) => format!(" Power cap failed: {e}."),
             None => String::new(),
         }

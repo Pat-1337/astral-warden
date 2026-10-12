@@ -12,6 +12,10 @@ struct Console;
 impl Host for Console {
     fn notify(&mut self, _: Severity, _: &str, _: &str) {}
 
+    fn alarm(&mut self, severity: Severity) {
+        log!("alarm ({severity:?})");
+    }
+
     fn shutdown(&mut self, reason: &str) -> Result<(), String> {
         log!("unsupported platform, not shutting down: {reason}");
         Ok(())

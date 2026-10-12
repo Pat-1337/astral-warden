@@ -2,12 +2,11 @@ use crate::warden::Severity;
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
 use windows_sys::Win32::UI::Shell::{
-    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_ERROR, NIIF_INFO, NIIF_RESPECT_QUIET_TIME,
-    NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NOTIFYICON_VERSION_4, NOTIFYICONDATAW,
-    Shell_NotifyIconW,
+    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_LARGE_ICON, NIIF_RESPECT_QUIET_TIME, NIIF_USER,
+    NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateIconIndirect, DestroyIcon, GetSystemMetrics, HICON, ICONINFO, SM_CXSMICON,
+    CreateIconIndirect, DestroyIcon, GetSystemMetrics, HICON, ICONINFO, SM_CXICON, SM_CXSMICON, SYSTEM_METRICS_INDEX,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,8 +56,8 @@ fn shade(size: f32, x: f32, y: f32) -> Option<f32> {
     Some(if pin { 0.25 } else { 1.0 })
 }
 
-pub fn draw(tone: Tone) -> HICON {
-    let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.clamp(16, 64) as usize;
+pub fn draw(tone: Tone, metric: SYSTEM_METRICS_INDEX) -> HICON {
+    let size = unsafe { GetSystemMetrics(metric) }.clamp(16, 256) as usize;
     let [r, g, b] = tone.rgb();
     const SS: usize = 4;
 
@@ -109,6 +108,7 @@ pub struct Tray {
     tone: Option<Tone>,
     tip: String,
     added: bool,
+    badges: [HICON; 3],
 }
 
 impl Tray {
@@ -124,6 +124,7 @@ impl Tray {
             tone: None,
             tip: String::new(),
             added: false,
+            badges: [std::ptr::null_mut(); 3],
         }
     }
 
@@ -145,7 +146,7 @@ impl Tray {
 
         let recolor = self.tone != Some(tone);
         if recolor {
-            let old = std::mem::replace(&mut self.data.hIcon, draw(tone));
+            let old = std::mem::replace(&mut self.data.hIcon, draw(tone, SM_CXSMICON));
             if !old.is_null() {
                 unsafe { DestroyIcon(old) };
             }
@@ -174,12 +175,19 @@ impl Tray {
         copy_wide(&mut self.data.szInfoTitle, title);
         copy_wide(&mut self.data.szInfo, body);
 
-        self.data.dwInfoFlags = match severity {
-            Severity::Info => NIIF_INFO | NIIF_RESPECT_QUIET_TIME,
-            Severity::Warn => NIIF_WARNING,
-            Severity::Crit => NIIF_ERROR,
+        let (tone, quiet) = match severity {
+            Severity::Info => (Tone::Ok, NIIF_RESPECT_QUIET_TIME),
+            Severity::Warn => (Tone::Warn, 0),
+            Severity::Crit => (Tone::Crit, 0),
         };
 
+        let badge = &mut self.badges[tone as usize];
+        if badge.is_null() {
+            *badge = draw(tone, SM_CXICON);
+        }
+
+        self.data.hBalloonIcon = *badge;
+        self.data.dwInfoFlags = NIIF_USER | NIIF_LARGE_ICON | quiet;
         self.data.uFlags = NIF_INFO | NIF_SHOWTIP;
         unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.data) };
     }
@@ -189,8 +197,10 @@ impl Drop for Tray {
     fn drop(&mut self) {
         unsafe {
             Shell_NotifyIconW(NIM_DELETE, &self.data);
-            if !self.data.hIcon.is_null() {
-                DestroyIcon(self.data.hIcon);
+            for icon in self.badges.into_iter().chain([self.data.hIcon]) {
+                if !icon.is_null() {
+                    DestroyIcon(icon);
+                }
             }
         }
     }

@@ -84,7 +84,7 @@ macro_rules! log {
     ($($arg:tt)*) => { $crate::log::write(&format!($($arg)*)) };
 }
 
-fn timestamp() -> String {
+pub fn timestamp() -> String {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
 
