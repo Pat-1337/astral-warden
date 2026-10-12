@@ -76,9 +76,11 @@ impl Config {
         if path.exists() {
             return Ok(false);
         }
+
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
+
         let text = toml::to_string_pretty(&Self::default()).map_err(std::io::Error::other)?;
         std::fs::write(path, text).map(|()| true)
     }
@@ -103,6 +105,7 @@ impl Config {
                 "power_cap.percent must be within 50..=100",
             ),
         ];
+
         match checks.iter().find(|(ok, _)| !ok) {
             Some((_, msg)) => Err((*msg).into()),
             None => Ok(self),
@@ -119,6 +122,7 @@ pub fn default_path() -> PathBuf {
     let base = std::env::var_os("ProgramData").map_or_else(|| PathBuf::from(r"C:\ProgramData"), PathBuf::from);
     #[cfg(not(windows))]
     let base = PathBuf::from("/etc");
+
     base.join("astral-warden").join("config.toml")
 }
 

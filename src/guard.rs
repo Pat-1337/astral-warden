@@ -56,6 +56,7 @@ const CALM: f32 = 0.95;
 
 pub fn imbalance(r: &Reading) -> (usize, f32) {
     let mean = r.total() / PINS as f32;
+
     r.amps
         .iter()
         .map(|a| (a - mean) / mean)
@@ -72,6 +73,7 @@ pub fn assess(r: &Reading, cfg: &Config) -> Option<(Level, Fault)> {
         v if v >= limits.warn => Some(Level::Warn),
         _ => None,
     };
+
     let (pin, amps) = r.hottest();
     let by_pin = grade(amps, cfg.pin_amps).map(|l| (l, Fault::Pin { pin, amps }));
     let by_balance = (r.total() >= cfg.imbalance_min_total_amps)
@@ -79,6 +81,7 @@ pub fn assess(r: &Reading, cfg: &Config) -> Option<(Level, Fault)> {
         .and_then(|(pin, deviation)| {
             grade(deviation.abs(), cfg.imbalance).map(|l| (l, Fault::Imbalance { pin, deviation }))
         });
+
     match (by_pin, by_balance) {
         (Some(p), Some(b)) if b.0 > p.0 => Some(b),
         (p, b) => p.or(b),
@@ -132,9 +135,11 @@ impl Guard {
     fn miss(&mut self, now: Instant) -> Option<Action> {
         self.fail_streak = self.fail_streak.saturating_add(1);
         self.last = None;
+
         if let Some(action) = self.timeout(now) {
             return Some(action);
         }
+
         let lost = self.fail_streak == self.cfg.sensor_fail_samples;
         match self.phase {
             Phase::Normal | Phase::Recovering { .. } if lost => {
@@ -150,6 +155,7 @@ impl Guard {
         self.last = Some(r);
         let verdict = assess(&r, &self.cfg);
         let level = verdict.map(|v| v.0);
+
         let bump = |streak: u32, hit: bool| if hit { streak.saturating_add(1) } else { 0 };
         self.crit_streak = bump(self.crit_streak, level == Some(Level::Crit));
         self.warn_streak = bump(self.warn_streak, level.is_some());
@@ -158,11 +164,14 @@ impl Guard {
         if let Some((_, fault)) = verdict.filter(|_| self.crit_streak >= self.cfg.crit_samples) {
             return self.halt(now, fault);
         }
+
         let warned = self.warn_streak >= self.cfg.warn_samples;
         let calmed = self.ok_streak >= self.cfg.warn_samples;
         let restore = Duration::from_secs(self.cfg.power_cap.restore_after_secs);
+
         match (self.phase, verdict) {
             (Phase::Recovering { strict: true, .. }, Some((_, fault))) if warned => self.halt(now, fault),
+
             (Phase::Normal | Phase::Blind | Phase::Recovering { .. }, Some((_, fault))) if warned => {
                 self.phase = Phase::Warning {
                     since: now,
@@ -171,6 +180,7 @@ impl Guard {
                 };
                 Some(Action::Warn(fault))
             }
+
             (Phase::Warning { since, escalated, .. }, Some((_, fault))) => {
                 self.phase = Phase::Warning {
                     since,
@@ -179,6 +189,7 @@ impl Guard {
                 };
                 self.timeout(now)
             }
+
             (Phase::Warning { .. }, None) if calmed => {
                 self.phase = Phase::Recovering {
                     since: now,
@@ -186,6 +197,7 @@ impl Guard {
                 };
                 Some(Action::Recovered)
             }
+
             (Phase::Blind, None) => {
                 self.phase = Phase::Recovering {
                     since: now,
@@ -193,10 +205,12 @@ impl Guard {
                 };
                 Some(Action::SensorBack)
             }
+
             (Phase::Recovering { since, .. }, None) if now.duration_since(since) >= restore => {
                 self.phase = Phase::Normal;
                 None
             }
+
             _ => self.timeout(now),
         }
     }
@@ -217,15 +231,18 @@ impl Guard {
             self.phase = Phase::Halted;
             return Some(Action::Shutdown(fault));
         }
+
         let (since, first) = match self.phase {
             Phase::Warning { since, escalated, .. } => (since, !escalated),
             _ => (now, true),
         };
+
         self.phase = Phase::Warning {
             since,
             fault,
             escalated: true,
         };
+
         first.then_some(Action::Critical(fault))
     }
 }

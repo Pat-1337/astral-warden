@@ -1,6 +1,6 @@
 [package]
 name = "astral-warden"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Per-pin 12V-2x6 watchdog for ASUS ROG Astral GPUs"
@@ -22,6 +22,8 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Console",
     "Win32_System_LibraryLoader",
     "Win32_System_Memory",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
     "Win32_System_Shutdown",
     "Win32_System_Threading",
     "Win32_UI_HiDpi",

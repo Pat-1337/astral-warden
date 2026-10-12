@@ -53,13 +53,16 @@ impl View {
         if map.is_null() {
             return Err("not running or Shared Memory Support is off".into());
         }
+
         let base = unsafe { MapViewOfFile(map, FILE_MAP_READ, 0, 0, 0) }.Value as *const u8;
         if base.is_null() {
             unsafe { CloseHandle(map) };
             return Err(format!("MapViewOfFile: {}", std::io::Error::last_os_error()));
         }
+
         let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
         unsafe { VirtualQuery(base.cast(), &mut info, size_of::<MEMORY_BASIC_INFORMATION>()) };
+
         let mutex = unsafe {
             OpenMutexW(
                 SYNCHRONIZATION_SYNCHRONIZE | MUTEX_MODIFY_STATE,
@@ -67,6 +70,7 @@ impl View {
                 wide(MUTEX).as_ptr(),
             )
         };
+
         Ok(Self {
             map,
             base,
@@ -79,6 +83,7 @@ impl View {
         if self.mutex.is_null() {
             return Ok(Locked(self));
         }
+
         match unsafe { WaitForSingleObject(self.mutex, MUTEX_WAIT_MS) } {
             WAIT_OBJECT_0 | WAIT_ABANDONED => Ok(Locked(self)),
             _ => Err("shared memory busy".into()),
@@ -160,15 +165,19 @@ impl HwInfo {
         let offset = view.u32(HEADER_ENTRY_OFFSET)? as usize;
         let size = view.u32(HEADER_ENTRY_SIZE)? as usize;
         let count = view.u32(HEADER_ENTRY_COUNT)? as usize;
+
         if size < ENTRY_MIN {
             return Err(format!("unsupported entry size {size}"));
         }
+
         let entries: Vec<usize> = (0..count).map(|i| offset + i * size).collect();
         let find = |label: &str| entries.iter().copied().find(|&e| Self::labelled(view, e, label));
+
         let mut amps = [0; PINS];
         for (slot, label) in amps.iter_mut().zip(amp_labels) {
             *slot = find(label).ok_or_else(|| format!("no \"{label}\" sensor"))?;
         }
+
         Ok(Slots {
             amps,
             volts: std::array::from_fn(|i| find(&volt_labels[i])),
@@ -188,15 +197,18 @@ impl HwInfo {
         };
         let view = self.view.insert(view);
         let _locked = view.lock()?;
+
         if view.u32(0)? != MAGIC {
             return Err("HWiNFO has exited".into());
         }
+
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
         if now - view.i64(HEADER_POLL_TIME)? > STALE_SECS {
             return Err("HWiNFO data is stale".into());
         }
+
         let fresh = self.slots.filter(|s| {
             s.amps
                 .iter()
@@ -208,16 +220,19 @@ impl HwInfo {
             None => Self::locate(view, &self.amp_labels, &self.volt_labels)?,
         };
         self.slots = Some(slots);
+
         let mut reading = Reading {
             volts: [12.0; PINS],
             amps: [0.0; PINS],
         };
+
         for pin in 0..PINS {
             reading.amps[pin] = Self::value(view, slots.amps[pin], b"mA")?;
             if let Some(entry) = slots.volts[pin] {
                 reading.volts[pin] = Self::value(view, entry, b"mV")?;
             }
         }
+
         match reading.plausible() {
             true => Ok(reading),
             false => Err(format!("implausible values {reading}")),

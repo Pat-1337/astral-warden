@@ -44,6 +44,7 @@ impl I2cDev {
                 ErrorKind::PermissionDenied => format!("{path} needs root"),
                 _ => format!("{path}: {e}"),
             })?;
+
         match unsafe { libc::ioctl(file.as_raw_fd(), I2C_SLAVE as _, libc::c_ulong::from(IT8915_ADDR)) } {
             0 => Ok(Self(file)),
             _ => Err(format!(
@@ -58,12 +59,14 @@ impl Bus for I2cDev {
     fn read(&mut self, reg: u8, buf: &mut [u8]) -> Result<(), String> {
         let mut block = [0u8; 34];
         block[0] = buf.len() as u8;
+
         let mut args = SmbusIoctl {
             read_write: I2C_SMBUS_READ,
             command: reg,
             size: I2C_SMBUS_I2C_BLOCK_DATA,
             data: &mut block,
         };
+
         match unsafe { libc::ioctl(self.0.as_raw_fd(), I2C_SMBUS as _, &mut args) } {
             0 => {
                 buf.copy_from_slice(&block[1..=buf.len()]);
@@ -104,6 +107,7 @@ fn sensor_adapter(gpu: &Path) -> Result<u32, String> {
 
 pub fn open_device() -> Result<Device, String> {
     let mut failures = Vec::new();
+
     for dir in fs::read_dir(PCI_DEVICES)
         .map_err(|e| e.to_string())?
         .flatten()
@@ -112,10 +116,12 @@ pub fn open_device() -> Result<Device, String> {
         let Some(pci) = pci_id(&dir).filter(|id| id.vendor == NVIDIA) else {
             continue;
         };
+
         let Some(model) = pci.model() else {
             failures.push(format!("{pci} is not a supported board"));
             continue;
         };
+
         let bdf = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
         match sensor_adapter(&dir).and_then(|n| Ok((n, It8915::probe(I2cDev::open(n)?)?))) {
             Ok((n, sensor)) => {
@@ -129,6 +135,7 @@ pub fn open_device() -> Result<Device, String> {
             Err(e) => failures.push(format!("{model} at {bdf}: {e}")),
         }
     }
+
     Err(no_device(&failures))
 }
 
@@ -161,6 +168,7 @@ fn user_name(uid: libc::uid_t) -> Option<String> {
     let mut buf = [0 as libc::c_char; 1024];
     let mut out = std::ptr::null_mut();
     let rc = unsafe { libc::getpwuid_r(uid, &mut pwd, buf.as_mut_ptr(), buf.len(), &mut out) };
+
     (rc == 0 && !out.is_null()).then(|| {
         unsafe { std::ffi::CStr::from_ptr(pwd.pw_name) }
             .to_string_lossy()
@@ -175,9 +183,11 @@ impl Host for Desktop {
             Severity::Warn | Severity::Crit => "critical",
         };
         let notify = ["-a", "Astral Warden", "-u", urgency, title, body];
+
         if unsafe { libc::geteuid() } != 0 {
             return detach(Command::new("notify-send").args(notify));
         }
+
         for (user, bus) in Self::sessions() {
             let env = format!("DBUS_SESSION_BUS_ADDRESS=unix:path={}", bus.display());
             detach(
@@ -190,6 +200,7 @@ impl Host for Desktop {
 
     fn shutdown(&mut self, reason: &str) -> Result<(), String> {
         let _ = spawn_quiet("wall", &[&format!("astral-warden: {reason}")]);
+
         spawn_quiet("systemctl", &["poweroff"])
             .or_else(|_| spawn_quiet("shutdown", &["-P", "now"]))
             .or_else(|_| spawn_quiet("poweroff", &[]))
@@ -203,7 +214,7 @@ impl Host for Desktop {
     }
 }
 
-pub fn run(warden: Warden, cfg: &Config) -> Result<(), String> {
+pub fn run(warden: Warden, cfg: &Config, _: &Path) -> Result<(), String> {
     unix::run_loop(warden, cfg.poll(), &mut Desktop)
 }
 
@@ -249,13 +260,16 @@ impl Init {
             Self::Systemd => spawn_quiet("systemctl", &["daemon-reload"])
                 .and_then(|()| spawn_quiet("systemctl", &["enable", "astral-warden.service"]))
                 .and_then(|()| spawn_quiet("systemctl", &["restart", "astral-warden.service"])),
+
             Self::OpenRc => spawn_quiet("rc-update", &["add", "astral-warden", "default"])
                 .and_then(|()| spawn_quiet("rc-service", &["astral-warden", "restart"])),
+
             Self::Runit => {
                 let dir = RUNSVDIRS
                     .iter()
                     .find(|d| Path::new(d).is_dir())
                     .ok_or("no runsvdir found")?;
+
                 let link = Path::new(dir).join("astral-warden");
                 match std::os::unix::fs::symlink(RUNIT_SV, &link) {
                     Ok(()) => Ok(()),
@@ -271,15 +285,18 @@ impl Init {
     fn disable(self) {
         match self {
             Self::Systemd => drop(spawn_quiet("systemctl", &["disable", "--now", "astral-warden.service"])),
+
             Self::OpenRc => {
                 let _ = spawn_quiet("rc-service", &["astral-warden", "stop"]);
                 let _ = spawn_quiet("rc-update", &["del", "astral-warden", "default"]);
             }
+
             Self::Runit => {
                 for link in RUNSVDIRS.iter().map(|d| Path::new(d).join("astral-warden")) {
                     let _ = spawn_quiet("sv", &["down", &link.to_string_lossy()]);
                     let _ = fs::remove_file(link);
                 }
+
                 let _ = fs::remove_dir_all(RUNIT_SV);
             }
         }
@@ -288,9 +305,11 @@ impl Init {
 
 fn write(path: &str, text: &str, mode: u32) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
+
     if let Some(dir) = Path::new(path).parent() {
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
+
     fs::write(path, text)
         .and_then(|()| fs::set_permissions(path, fs::Permissions::from_mode(mode)))
         .map_err(|e| format!("{path}: {e}"))
@@ -310,21 +329,25 @@ fn remove(path: &str) -> Result<(), String> {
     }
 }
 
-pub fn install(config: &Path) -> Result<(), String> {
+pub fn install(config: &Path, _: bool) -> Result<(), String> {
     require_root()?;
     let init = Init::detect()?;
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+
     if exe != Path::new(BIN) {
         let staged = format!("{BIN}.new");
         fs::copy(&exe, &staged)
             .and_then(|_| fs::rename(&staged, BIN))
             .map_err(|e| format!("{BIN}: {e}"))?;
     }
+
     if Config::write_default(config).map_err(|e| format!("{}: {e}", config.display()))? {
         println!("wrote {}", config.display());
     }
+
     write(MODULES, include_str!("../../init/modules-load.conf"), 0o644)?;
     let _ = spawn_quiet("modprobe", &["i2c-dev"]);
+
     let (path, template) = init.service();
     let service = template
         .replace("@BIN@", BIN)
@@ -334,22 +357,27 @@ pub fn install(config: &Path) -> Result<(), String> {
         &service,
         if matches!(init, Init::Systemd) { 0o644 } else { 0o755 },
     )?;
+
     init.enable()
         .map_err(|e| format!("{path} written, but starting it failed: {e}"))?;
+
     println!("installed as a {init:?} service: {path}");
     Ok(())
 }
 
-pub fn uninstall() -> Result<(), String> {
+pub fn uninstall(_: bool) -> Result<(), String> {
     require_root()?;
     let init = Init::detect()?;
+
     init.disable();
     remove(init.service().0)?;
     remove(MODULES)?;
     remove(BIN)?;
+
     if matches!(init, Init::Systemd) {
         let _ = spawn_quiet("systemctl", &["daemon-reload"]);
     }
+
     println!("uninstalled; config kept at {}", config::default_path().display());
     Ok(())
 }

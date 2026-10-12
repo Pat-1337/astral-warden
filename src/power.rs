@@ -41,12 +41,14 @@ struct PciInfo {
 impl Nvml {
     fn open(pci: PciId, bus: Option<u32>) -> Result<Self, String> {
         let lib = Library::open(NVML).ok_or("NVML not found")?;
+
         unsafe {
             macro_rules! sym {
                 ($name:literal) => {
                     lib.symbol($name).ok_or(concat!("NVML lacks ", $name))?
                 };
             }
+
             let init: unsafe extern "C" fn() -> Ret = sym!("nvmlInit_v2");
             let count: unsafe extern "C" fn(*mut u32) -> Ret = sym!("nvmlDeviceGetCount_v2");
             let by_index: unsafe extern "C" fn(u32, *mut Device) -> Ret = sym!("nvmlDeviceGetHandleByIndex_v2");
@@ -55,6 +57,7 @@ impl Nvml {
                 sym!("nvmlDeviceGetPowerManagementLimitConstraints");
             let default_limit: unsafe extern "C" fn(Device, *mut u32) -> Ret =
                 sym!("nvmlDeviceGetPowerManagementDefaultLimit");
+
             let nvml = Self {
                 error_string: sym!("nvmlErrorString"),
                 get_limit: sym!("nvmlDeviceGetPowerManagementLimit"),
@@ -66,10 +69,12 @@ impl Nvml {
                 max_mw: 0,
                 _lib: lib,
             };
+
             nvml.check(init())?;
             let mut n = 0;
             nvml.check(count(&mut n))?;
             let wanted = pci.dwords();
+
             let dev = (0..n)
                 .filter_map(|i| {
                     let mut dev = std::ptr::null_mut();
@@ -79,9 +84,11 @@ impl Nvml {
                 .find(|(_, info)| (info.device_id, info.subsystem_id) == wanted && bus.is_none_or(|b| b == info.bus))
                 .map(|(dev, _)| dev)
                 .ok_or("NVML does not list this GPU")?;
+
             let (mut min, mut max, mut default) = (0, 0, 0);
             nvml.check(constraints(dev, &mut min, &mut max))?;
             nvml.check(default_limit(dev, &mut default))?;
+
             Ok(Self {
                 dev,
                 min_mw: min,
@@ -135,6 +142,7 @@ impl PowerCap {
         }) else {
             return;
         };
+
         match &self.nvml {
             Ok(nvml) if nvml.query(nvml.get_limit).is_ok_and(|current| current == target) => {
                 log!(
@@ -178,13 +186,16 @@ impl PowerCap {
         let nvml = self.nvml.as_ref().map_err(Clone::clone)?;
         let current = nvml.query(nvml.get_limit)?;
         let target = Self::target_mw(nvml, self.percent);
+
         if current > target {
             nvml.check(unsafe { (nvml.set_limit)(nvml.dev, target) })?;
         }
+
         if self.saved_mw.is_none() {
             self.saved_mw = Some(current);
             let _ = std::fs::write(&self.state, format!("{current} {}", target.min(current)));
         }
+
         Ok(target.min(current))
     }
 
@@ -199,10 +210,12 @@ impl PowerCap {
         let (Ok(nvml), Some(saved)) = (self.nvml.as_ref(), self.saved_mw) else {
             return Ok(None);
         };
+
         let current = nvml.query(nvml.get_limit)?;
         if current < saved {
             nvml.check(unsafe { (nvml.set_limit)(nvml.dev, saved) })?;
         }
+
         self.saved_mw = None;
         let _ = std::fs::remove_file(&self.state);
         Ok(Some(saved))

@@ -25,7 +25,16 @@ The tray icon shows the state:
 | amber | warning, recovering, or sensor unreadable |
 | red | shutdown issued |
 
-Hover over the icon for the hottest pin and the board power. Right-click it for Open config, Open log, and Exit.
+Hover over the icon for the hottest pin and the board power. Right-click it for:
+
+| Section | Shows |
+|---|---|
+| Header | version and detected board, with the sensor source |
+| Readings | state, current and voltage for each pin, total current and power, balance, board power against its limit, power cap state, shutdown arming, memory use (working set), uptime |
+| Start at logon | checkbox that registers or removes the logon task, with a UAC prompt if not elevated; monitoring continues meanwhile |
+| Actions | Open config, Open log, Exit |
+
+Running `astral-warden.exe` standalone and ticking **Start at logon** gives the same result as `install`, but doesn't restart the running instance.
 
 Optional fallback: if the direct sensor read fails, readings come from [HWiNFO](https://www.hwinfo.com/) when it is running with **Shared Memory Support** enabled. `status` shows which source is in use (`via NVAPI, HWiNFO as fallback` or `via HWiNFO`).
 

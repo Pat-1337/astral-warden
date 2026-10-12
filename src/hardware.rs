@@ -65,8 +65,10 @@ impl PciId {
         if (self.vendor, self.sub_vendor) != (NVIDIA, ASUS) {
             return None;
         }
+
         let gpu = GPUS.iter().find(|g| g.0 == self.device)?.1;
         let board = BOARDS.iter().find(|b| b.0 == self.sub_device)?.1;
+
         Some(format!("ASUS {board} {gpu} [{self}]"))
     }
 }
@@ -91,11 +93,13 @@ pub fn no_device(failures: &[String]) -> String {
 pub fn decode(frame: &[u8; FRAME_LEN]) -> Result<Reading, String> {
     let be = |i: usize| f32::from(u16::from_be_bytes([frame[i], frame[i + 1]])) / 1000.0;
     let mut reading = Reading::default();
+
     for pin in 0..PINS {
         let base = (PINS - 1 - pin) * 4;
         reading.volts[pin] = be(base);
         reading.amps[pin] = be(base + 2);
     }
+
     if reading.plausible() {
         Ok(reading)
     } else {
@@ -117,6 +121,7 @@ impl<B: Bus> It8915<B> {
             Ok(()) => crate::log!("unexpected IT8915 chip id {:#04x}, relying on frame check", id[0]),
             Err(e) => crate::log!("IT8915 chip id unreadable ({e}), relying on frame check"),
         }
+
         let mut sensor = Self(bus);
         sensor.read()?;
         Ok(sensor)
@@ -139,6 +144,7 @@ impl<B: Bus> Sensor for It8915<B> {
             std::thread::sleep(RETRY_DELAY);
             result = self.frame();
         }
+
         result
     }
 }

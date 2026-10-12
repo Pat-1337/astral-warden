@@ -13,6 +13,7 @@ pub fn to_file(path: PathBuf) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
+
     if let Ok(file) = OpenOptions::new().create(true).append(true).open(&path) {
         *FILE.lock().unwrap_or_else(|e| e.into_inner()) = Some((path, file));
     }
@@ -23,7 +24,9 @@ pub fn write(msg: &str) {
         Some(_) => format!("{msg}\n"),
         None => format!("{} {msg}\n", timestamp()),
     };
+
     let _ = std::io::stderr().write_all(line.as_bytes());
+
     let mut slot = FILE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((path, file)) = slot.as_mut() {
         if file.metadata().is_ok_and(|m| m.len() > MAX_BYTES) {
@@ -32,6 +35,7 @@ pub fn write(msg: &str) {
                 *file = fresh;
             }
         }
+
         let _ = file.write_all(line.as_bytes());
     }
 }
@@ -44,6 +48,7 @@ macro_rules! log {
 fn timestamp() -> String {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z - era * 146_097;
@@ -53,6 +58,7 @@ fn timestamp() -> String {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
+
     format!(
         "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
         rem / 3600,

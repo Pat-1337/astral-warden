@@ -58,11 +58,13 @@ unsafe impl Sync for NvApi {}
 impl NvApi {
     pub fn load() -> Result<Arc<Self>, String> {
         let lib = Library::open(&["nvapi64.dll"]).ok_or("nvapi64.dll not found (NVIDIA driver missing)")?;
+
         unsafe {
             let query: QueryInterface = lib
                 .symbol("nvapi_QueryInterface")
                 .ok_or("nvapi_QueryInterface missing")?;
             let initialize: unsafe extern "C" fn() -> Status = resolve(query, INITIALIZE)?;
+
             let api = Self {
                 enum_gpus: resolve(query, ENUM_PHYSICAL_GPUS)?,
                 pci_ids: resolve(query, GPU_GET_PCI_IDENTIFIERS)?,
@@ -70,6 +72,7 @@ impl NvApi {
                 bus_id: resolve(query, GPU_GET_BUS_ID).ok(),
                 _lib: lib,
             };
+
             match initialize() {
                 0 => Ok(Arc::new(api)),
                 code => Err(format!("NvAPI_Initialize failed ({code})")),
@@ -85,9 +88,11 @@ impl NvApi {
     pub fn gpus(&self) -> Vec<(Handle, PciId)> {
         let mut handles = [std::ptr::null_mut(); MAX_GPUS];
         let mut count = 0;
+
         if unsafe { (self.enum_gpus)(&mut handles, &mut count) } != 0 {
             return Vec::new();
         }
+
         handles[..(count as usize).min(MAX_GPUS)]
             .iter()
             .filter_map(|&gpu| {
@@ -122,6 +127,7 @@ impl Bus for NvI2c {
             is_port_id_set: 1,
         };
         let mut unknown = 0;
+
         match unsafe { (self.api.i2c_read)(self.gpu, &mut info, &mut unknown) } {
             0 => Ok(()),
             code => Err(format!("NvAPI_I2CReadEx failed ({code})")),

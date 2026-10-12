@@ -27,32 +27,41 @@ impl Tone {
     }
 }
 
+const BODY: [f32; 5] = [6.0, 12.0, 52.0, 44.0, 11.0];
+const LATCH: [f32; 5] = [22.0, 6.0, 20.0, 9.0, 3.0];
+const PIN_SIZE: f32 = 10.0;
+const PIN_RADIUS: f32 = 3.0;
+const PIN_COLUMNS: [f32; 3] = [14.0, 27.0, 40.0];
+const PIN_ROWS: [f32; 2] = [22.0, 37.0];
+
+fn inside([x, y, w, h, r]: [f32; 5], px: f32, py: f32) -> bool {
+    let (hw, hh) = (w / 2.0, h / 2.0);
+    let dx = ((px - x - hw).abs() - (hw - r)).max(0.0);
+    let dy = ((py - y - hh).abs() - (hh - r)).max(0.0);
+
+    (px - x - hw).abs() <= hw && (py - y - hh).abs() <= hh && dx.hypot(dy) <= r
+}
+
 fn shade(size: f32, x: f32, y: f32) -> Option<f32> {
-    let half = size / 2.0;
-    let radius = size * 0.22;
-    let inset = size * 0.06;
-    let (dx, dy) = (
-        (x - half).abs() - (half - inset - radius),
-        (y - half).abs() - (half - inset - radius),
-    );
-    let outside = dx.max(0.0).hypot(dy.max(0.0)) + dx.max(dy).min(0.0) - radius;
-    if outside > 0.0 {
+    let (px, py) = (x * 64.0 / size, y * 64.0 / size);
+    if !inside(BODY, px, py) && !inside(LATCH, px, py) {
         return None;
     }
-    let pitch = size * 0.24;
-    let hole = size * 0.075;
-    let in_hole = [-1.0, 0.0, 1.0].iter().any(|col| {
-        [-0.5, 0.5]
+
+    let pin = PIN_ROWS.iter().any(|&row| {
+        PIN_COLUMNS
             .iter()
-            .any(|row| (x - half - col * pitch).hypot(y - half - row * pitch * 1.25) < hole)
+            .any(|&col| inside([col, row, PIN_SIZE, PIN_SIZE, PIN_RADIUS], px, py))
     });
-    Some(if in_hole { 0.3 } else { 1.0 })
+
+    Some(if pin { 0.25 } else { 1.0 })
 }
 
 pub fn draw(tone: Tone) -> HICON {
     let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.clamp(16, 64) as usize;
     let [r, g, b] = tone.rgb();
     const SS: usize = 4;
+
     let pixels: Vec<u8> = (0..size * size)
         .flat_map(|i| {
             let (px, py) = ((i % size) as f32, (i / size) as f32);
@@ -62,15 +71,18 @@ pub fn draw(tone: Tone) -> HICON {
                     shade(size as f32, px + sx / SS as f32, py + sy / SS as f32)
                 })
                 .fold((0.0, 0.0), |(n, sum), l| (n + 1.0, sum + l));
+
             let alpha = hits / (SS * SS) as f32;
             let lit = |c: u8| (f32::from(c) * light / hits.max(1.0) * alpha) as u8;
             [lit(b), lit(g), lit(r), (alpha * 255.0) as u8]
         })
         .collect();
+
     let mask = vec![0u8; size.div_ceil(16) * 2 * size];
     unsafe {
         let color = CreateBitmap(size as i32, size as i32, 1, 32, pixels.as_ptr().cast());
         let mono = CreateBitmap(size as i32, size as i32, 1, 1, mask.as_ptr().cast());
+
         let info = ICONINFO {
             fIcon: 1,
             xHotspot: 0,
@@ -78,9 +90,11 @@ pub fn draw(tone: Tone) -> HICON {
             hbmMask: mono,
             hbmColor: color,
         };
+
         let icon = CreateIconIndirect(&info);
         DeleteObject(color);
         DeleteObject(mono);
+
         icon
     }
 }
@@ -104,6 +118,7 @@ impl Tray {
         data.hWnd = hwnd;
         data.uID = 1;
         data.uCallbackMessage = message;
+
         Self {
             data,
             tone: None,
@@ -115,6 +130,7 @@ impl Tray {
     fn add(&mut self) {
         self.data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
         self.data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
+
         self.added =
             unsafe { Shell_NotifyIconW(NIM_ADD, &self.data) != 0 || Shell_NotifyIconW(NIM_MODIFY, &self.data) != 0 };
         if self.added {
@@ -126,15 +142,18 @@ impl Tray {
         if self.added && self.tone == Some(tone) && self.tip == tip {
             return;
         }
+
         if self.tone != Some(tone) {
             let old = std::mem::replace(&mut self.data.hIcon, draw(tone));
             if !old.is_null() {
                 unsafe { DestroyIcon(old) };
             }
         }
+
         self.tone = Some(tone);
         self.tip = tip.to_owned();
         copy_wide(&mut self.data.szTip, tip);
+
         if self.added {
             self.data.uFlags = NIF_ICON | NIF_TIP | NIF_SHOWTIP;
             self.added = unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.data) } != 0;
@@ -152,11 +171,13 @@ impl Tray {
     pub fn balloon(&mut self, severity: Severity, title: &str, body: &str) {
         copy_wide(&mut self.data.szInfoTitle, title);
         copy_wide(&mut self.data.szInfo, body);
+
         self.data.dwInfoFlags = match severity {
             Severity::Info => NIIF_INFO | NIIF_RESPECT_QUIET_TIME,
             Severity::Warn => NIIF_WARNING,
             Severity::Crit => NIIF_ERROR,
         };
+
         self.data.uFlags = NIF_INFO | NIF_SHOWTIP;
         unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.data) };
     }

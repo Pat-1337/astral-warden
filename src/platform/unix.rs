@@ -21,6 +21,7 @@ pub fn lock(candidates: &[PathBuf]) -> Result<Lock, String> {
                 .ok()
         })
         .ok_or("cannot create a lock file")?;
+
     match unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } {
         0 => Ok(Lock(file)),
         _ => Err("another instance is already running".into()),
@@ -35,6 +36,7 @@ pub fn run_loop(mut warden: Warden, poll: Duration, host: &mut impl Host) -> Res
     for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
         unsafe { libc::signal(signal, on_signal as *const () as libc::sighandler_t) };
     }
+
     let mut next = Instant::now();
     while !STOP.load(Ordering::Relaxed) {
         warden.tick(host);
@@ -45,6 +47,7 @@ pub fn run_loop(mut warden: Warden, poll: Duration, host: &mut impl Host) -> Res
             None => next = now,
         }
     }
+
     Ok(())
 }
 
@@ -71,6 +74,7 @@ pub fn detach(cmd: &mut std::process::Command) {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();
+
     if let Ok(mut child) = spawned {
         std::thread::spawn(move || child.wait());
     }

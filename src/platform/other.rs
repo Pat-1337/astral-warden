@@ -26,16 +26,16 @@ pub fn single_instance() -> Result<Lock, String> {
     unix::lock(&[std::env::temp_dir().join("astral-warden.lock")])
 }
 
-pub fn run(warden: Warden, cfg: &Config) -> Result<(), String> {
+pub fn run(warden: Warden, cfg: &Config, _: &Path) -> Result<(), String> {
     unix::run_loop(warden, cfg.poll(), &mut Console)
 }
 
-pub fn install(_: &Path) -> Result<(), String> {
+pub fn install(_: &Path, _: bool) -> Result<(), String> {
     Err("install is supported on Windows and Linux only".into())
 }
 
-pub fn uninstall() -> Result<(), String> {
-    install(Path::new(""))
+pub fn uninstall(_: bool) -> Result<(), String> {
+    install(Path::new(""), false)
 }
 
 pub fn attach_console() {}

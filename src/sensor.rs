@@ -35,6 +35,7 @@ impl std::fmt::Display for Reading {
         for (i, a) in self.amps.iter().enumerate() {
             write!(f, "{}{a:.2}", if i == 0 { "" } else { " " })?;
         }
+
         write!(f, " | {:.1} A {:.0} W", self.total(), self.watts())
     }
 }
@@ -52,6 +53,7 @@ impl Sensor for Simulated {
         let mut values = text
             .split(|c: char| c.is_whitespace() || c == ',')
             .filter(|s| !s.is_empty());
+
         for slot in &mut amps {
             *slot = values
                 .next()
@@ -59,6 +61,7 @@ impl Sensor for Simulated {
                 .parse()
                 .map_err(|e| format!("bad value: {e}"))?;
         }
+
         Ok(Reading {
             volts: [12.0; PINS],
             amps,

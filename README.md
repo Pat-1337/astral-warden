@@ -1,3 +1,5 @@
+<img src="assets/icon.svg" width="96" alt="">
+
 # astral-warden
 
 Per-pin 12V-2x6 watchdog for ASUS ROG Astral RTX 5090 / 5080.
