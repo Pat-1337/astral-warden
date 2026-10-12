@@ -32,6 +32,7 @@ pub struct Warden {
     release_error: bool,
     shutdown: Option<(String, Instant)>,
     board: Option<(Instant, Option<f32>)>,
+    last_error: Option<String>,
 }
 
 impl Warden {
@@ -52,6 +53,7 @@ impl Warden {
             release_error: false,
             shutdown: None,
             board: None,
+            last_error: None,
         }
     }
 
@@ -63,6 +65,31 @@ impl Warden {
     #[cfg_attr(not(windows), allow(dead_code))]
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn greeting(&self) -> (Severity, String, String) {
+        match (self.guard.last(), &self.last_error) {
+            (Some(r), _) => {
+                let (pin, amps) = r.hottest();
+                let body = format!(
+                    "{} found, all 6 pins readable. Hottest: pin {} at {amps:.1} A. Right-click the tray icon for details.",
+                    self.name,
+                    pin + 1
+                );
+                (Severity::Info, "Astral Warden is running".into(), body)
+            }
+            (None, error) => {
+                if let Some(e) = error {
+                    log!("first sensor read failed: {e}");
+                }
+                let body = format!(
+                    "{} found, but its pins can't be read. Turn on HWiNFO Shared Memory Support as a fallback.",
+                    self.name
+                );
+                (Severity::Warn, "Astral Warden: sensor unreadable".into(), body)
+            }
+        }
     }
 
     fn state(&self) -> &'static str {
@@ -162,6 +189,7 @@ impl Warden {
         }
 
         let sample = self.sample();
+        self.last_error = sample.as_ref().err().cloned();
         let action = self.guard.step(Instant::now(), sample);
         self.hold(host);
 

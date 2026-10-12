@@ -58,14 +58,44 @@ jobs:
     needs: [windows, linux]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
       - run: sha256sum *.zip *.tar.gz > SHA256SUMS
+      - run: |
+          version="${GITHUB_REF_NAME#v}"
+          hash=$(sha256sum astral-warden-*-windows-x86_64.zip | cut -d' ' -f1)
+          sed -e "s/@VERSION@/$version/g" -e "s/@HASH@/$hash/" src/packaging/scoop/astral-warden.json > astral-warden.json
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             *.zip
             *.tar.gz
             SHA256SUMS
+            astral-warden.json
           generate_release_notes: true
+
+  aur:
+    needs: publish
+    runs-on: ubuntu-latest
+    env:
+      AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+    steps:
+      - if: env.AUR_KEY != ''
+        uses: actions/checkout@v4
+      - if: env.AUR_KEY != ''
+        run: sed -i "s/^pkgver=.*/pkgver=${GITHUB_REF_NAME#v}/; s/^pkgrel=.*/pkgrel=1/" packaging/aur/PKGBUILD
+      - if: env.AUR_KEY != ''
+        uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
+        with:
+          pkgname: astral-warden-bin
+          pkgbuild: packaging/aur/PKGBUILD
+          assets: packaging/aur/astral-warden.install
+          updpkgsums: true
+          commit_username: Pat-1337
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: update to ${{ github.ref_name }}

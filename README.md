@@ -14,15 +14,30 @@
 
 ## Install
 
-**Windows 11**: download the zip from [Releases](../../releases), run `astral-warden.exe`, right-click the tray icon, tick **Start at logon**.
+**Windows 11**: download the zip from [Releases](../../releases), run `astral-warden.exe`, then tick **Start at logon** in the tray menu. Or with Scoop:
 
-**Linux** (systemd, OpenRC, runit): `sudo ./astral-warden install`
+```
+scoop install https://github.com/Pat-1337/astral-warden/releases/latest/download/astral-warden.json
+```
+
+**Linux** (systemd, OpenRC, runit), from the extracted release folder:
+
+```
+sudo ./astral-warden install
+```
 
 ## Use
 
+One reading:
+
 ```
-astral-warden status           one reading
-astral-warden status --watch   live readings
+astral-warden status
+```
+
+Live readings:
+
+```
+astral-warden status --watch
 ```
 
 | | Config |

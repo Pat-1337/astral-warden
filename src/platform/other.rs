@@ -26,7 +26,7 @@ pub fn single_instance() -> Result<Lock, String> {
     unix::lock(&[std::env::temp_dir().join("astral-warden.lock")])
 }
 
-pub fn run(warden: Warden, cfg: &Config, _: &Path) -> Result<(), String> {
+pub fn run(warden: Warden, cfg: &Config, _: &Path, _: bool) -> Result<(), String> {
     unix::run_loop(warden, cfg.poll(), &mut Console)
 }
 

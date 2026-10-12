@@ -20,7 +20,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 use warden::Warden;
 
-const USAGE: &str = "astral-warden [run|status|install|uninstall] [--config <path>] [--wait] [--background] [--watch]";
+const USAGE: &str = "astral-warden [run|status|install|uninstall|config] [--config <path>] [--wait] [--silent] [--background] [--watch]";
 const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 enum Command {
@@ -28,6 +28,7 @@ enum Command {
     Status,
     Install,
     Uninstall,
+    Defaults,
     Print(&'static str),
 }
 
@@ -38,12 +39,13 @@ struct Args {
     wait: bool,
     background: bool,
     watch: bool,
+    silent: bool,
 }
 
 fn parse() -> Result<Args, String> {
     let mut command = Command::Run;
-    let (mut config, mut explicit, mut wait, mut background, mut watch) =
-        (config::default_path(), false, false, false, false);
+    let (mut config, mut explicit, mut wait, mut background, mut watch, mut silent) =
+        (config::default_path(), false, false, false, false, false);
     let mut args = std::env::args().skip(1);
 
     while let Some(arg) = args.next() {
@@ -52,6 +54,8 @@ fn parse() -> Result<Args, String> {
             "status" => command = Command::Status,
             "install" => command = Command::Install,
             "uninstall" => command = Command::Uninstall,
+            "config" => command = Command::Defaults,
+            "--silent" => silent = true,
             "--wait" => wait = true,
             "--background" => background = true,
             "--watch" => watch = true,
@@ -73,6 +77,7 @@ fn parse() -> Result<Args, String> {
         wait,
         background,
         watch,
+        silent,
     })
 }
 
@@ -165,7 +170,7 @@ fn lock(wait: bool) -> Result<platform::Lock, String> {
     }
 }
 
-fn run(cfg: Config, config_path: &Path, wait: bool) -> Result<(), String> {
+fn run(cfg: Config, config_path: &Path, wait: bool, silent: bool) -> Result<(), String> {
     let _lock = lock(wait)?;
     let Device {
         name,
@@ -179,7 +184,7 @@ fn run(cfg: Config, config_path: &Path, wait: bool) -> Result<(), String> {
     let mut cap = PowerCap::new(pci, bus, cfg.power_cap.percent, config::state_path());
     cap.resume();
 
-    platform::run(Warden::new(name, cfg.clone(), sensor, cap), &cfg, config_path)
+    platform::run(Warden::new(name, cfg.clone(), sensor, cap), &cfg, config_path, silent)
 }
 
 fn main() -> ExitCode {
@@ -189,7 +194,13 @@ fn main() -> ExitCode {
         Command::Install => platform::install(&args.config, args.background),
         Command::Uninstall => platform::uninstall(args.background),
         Command::Status => Config::load(&args.config, args.explicit).and_then(|cfg| status(&cfg, args.watch)),
-        Command::Run => Config::load(&args.config, args.explicit).and_then(|cfg| run(cfg, &args.config, args.wait)),
+        Command::Run => {
+            Config::load(&args.config, args.explicit).and_then(|cfg| run(cfg, &args.config, args.wait, args.silent))
+        }
+        Command::Defaults => {
+            print!("{}", Config::default_text());
+            Ok(())
+        }
         Command::Print(text) => {
             println!("{text}");
             Ok(())

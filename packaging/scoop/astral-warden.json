@@ -1,0 +1,21 @@
+{
+    "version": "@VERSION@",
+    "description": "Per-pin 12V-2x6 watchdog for ASUS ROG Astral RTX 5090/5080",
+    "homepage": "https://github.com/Pat-1337/astral-warden",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/Pat-1337/astral-warden/releases/download/v@VERSION@/astral-warden-v@VERSION@-windows-x86_64.zip",
+            "hash": "@HASH@",
+            "extract_dir": "astral-warden-v@VERSION@-windows-x86_64"
+        }
+    },
+    "bin": "astral-warden.exe",
+    "shortcuts": [
+        [
+            "astral-warden.exe",
+            "Astral Warden"
+        ]
+    ],
+    "notes": "Start Astral Warden from the Start menu, then tick 'Start at logon' in its tray menu."
+}

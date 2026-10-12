@@ -63,7 +63,10 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds:
 - `astral-warden-<tag>-windows-x86_64.zip` (MSVC)
 - `astral-warden-<tag>-linux-x86_64-{systemd,openrc,runit}.tar.gz` (glibc 2.17+)
 - `SHA256SUMS`
+- `astral-warden.json` (Scoop manifest)
+
+If the AUR secrets are set, it also updates the AUR package. See [packaging](packaging.md).
 
 Linux is not built against musl: a static musl binary can't `dlopen` the glibc-built NVML library, which would silently disable the power cap.
 
-AUR and Homebrew-tap packaging can use the Linux tarball as-is.
+Scoop and AUR packaging are covered in [packaging](packaging.md).

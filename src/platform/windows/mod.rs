@@ -75,6 +75,7 @@ struct App {
     started: Instant,
     autostart: bool,
     shown: Option<(Tone, Instant)>,
+    greet: bool,
 }
 
 impl App {
@@ -362,6 +363,11 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             with_app(|app| {
                 app.warden.tick(&mut app.tray);
                 app.refresh();
+
+                if std::mem::take(&mut app.greet) {
+                    let (severity, title, body) = app.warden.greeting();
+                    app.tray.balloon(severity, &title, &body);
+                }
             });
             0
         }
@@ -412,7 +418,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
     }
 }
 
-pub fn run(warden: Warden, cfg: &Config, config: &Path) -> Result<(), String> {
+pub fn run(warden: Warden, cfg: &Config, config: &Path, silent: bool) -> Result<(), String> {
     log::to_file(log_path());
     unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     let class = wide("AstralWarden");
@@ -459,6 +465,7 @@ pub fn run(warden: Warden, cfg: &Config, config: &Path) -> Result<(), String> {
         started: Instant::now(),
         autostart: autostart_enabled(),
         shown: None,
+        greet: !silent,
     };
 
     app.refresh();
@@ -489,6 +496,21 @@ fn copy_with_retry(from: &Path, to: &Path) -> Result<(), String> {
     }
 
     result.map(drop).map_err(|e| format!("{}: {e}", to.display()))
+}
+
+fn scoop_current(exe: &Path) -> Option<PathBuf> {
+    let parts: Vec<_> = exe.components().collect();
+    let apps = parts.iter().position(|c| c.as_os_str().eq_ignore_ascii_case("apps"))?;
+    let scoop = parts.get(apps.checked_sub(1)?)?;
+
+    if !scoop.as_os_str().eq_ignore_ascii_case("scoop") || parts.len() < apps + 3 {
+        return None;
+    }
+
+    let mut path: PathBuf = parts[..apps + 2].iter().collect();
+    path.push("current");
+    path.push(exe.file_name()?);
+    Some(path)
 }
 
 fn install_dir() -> PathBuf {
@@ -527,7 +549,7 @@ fn task_xml(exe: &Path, config: &Path) -> String {
     <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>
   </Settings>
   <Actions Context="Author">
-    <Exec><Command>"{}"</Command><Arguments>run --wait --config "{}"</Arguments></Exec>
+    <Exec><Command>"{}"</Command><Arguments>run --wait --silent --config "{}"</Arguments></Exec>
   </Actions>
 </Task>
 "#,
@@ -607,11 +629,17 @@ pub fn install(config: &Path, background: bool) -> Result<(), String> {
         let _ = hidden("schtasks", &["/End", "/TN", TASK]);
     }
 
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let current = std::env::current_exe().map_err(|e| e.to_string())?;
-    if current != exe {
-        copy_with_retry(&current, &exe)?;
-    }
+    let exe = match scoop_current(&current) {
+        Some(scoop) => scoop,
+        None => {
+            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            if current != exe {
+                copy_with_retry(&current, &exe)?;
+            }
+            exe
+        }
+    };
 
     if Config::write_default(config).map_err(|e| format!("{}: {e}", config.display()))? {
         println!("wrote {}", config.display());
@@ -726,7 +754,10 @@ pub fn attach_console() {
 
 pub fn fatal(message: &str) {
     if !CONSOLE.load(Ordering::Relaxed) {
-        let (text, title) = (wide(message), wide("Astral Warden"));
+        let (text, title) = (
+            wide(&format!("Astral Warden is not running.\n\n{message}")),
+            wide("Astral Warden"),
+        );
         unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_ICONERROR) };
     }
 }

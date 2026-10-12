@@ -72,6 +72,10 @@ impl Config {
         }
     }
 
+    pub fn default_text() -> String {
+        toml::to_string_pretty(&Self::default()).unwrap_or_default()
+    }
+
     pub fn write_default(path: &Path) -> std::io::Result<bool> {
         if path.exists() {
             return Ok(false);
@@ -81,8 +85,7 @@ impl Config {
             std::fs::create_dir_all(dir)?;
         }
 
-        let text = toml::to_string_pretty(&Self::default()).map_err(std::io::Error::other)?;
-        std::fs::write(path, text).map(|()| true)
+        std::fs::write(path, Self::default_text()).map(|()| true)
     }
 
     fn validated(self) -> Result<Self, String> {

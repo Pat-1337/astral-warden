@@ -215,7 +215,7 @@ impl Host for Desktop {
     }
 }
 
-pub fn run(warden: Warden, cfg: &Config, _: &Path) -> Result<(), String> {
+pub fn run(warden: Warden, cfg: &Config, _: &Path, _: bool) -> Result<(), String> {
     unix::run_loop(warden, cfg.poll(), &mut Desktop)
 }
 
