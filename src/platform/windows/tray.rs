@@ -1,0 +1,172 @@
+use crate::warden::Severity;
+use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
+use windows_sys::Win32::UI::Shell::{
+    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_ERROR, NIIF_INFO, NIIF_RESPECT_QUIET_TIME,
+    NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NOTIFYICON_VERSION_4, NOTIFYICONDATAW,
+    Shell_NotifyIconW,
+};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    CreateIconIndirect, DestroyIcon, GetSystemMetrics, HICON, ICONINFO, SM_CXSMICON,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tone {
+    Ok,
+    Warn,
+    Crit,
+}
+
+impl Tone {
+    fn rgb(self) -> [u8; 3] {
+        match self {
+            Self::Ok => [0x2E, 0xB8, 0x5C],
+            Self::Warn => [0xF5, 0xA6, 0x23],
+            Self::Crit => [0xE5, 0x39, 0x35],
+        }
+    }
+}
+
+fn shade(size: f32, x: f32, y: f32) -> Option<f32> {
+    let half = size / 2.0;
+    let radius = size * 0.22;
+    let inset = size * 0.06;
+    let (dx, dy) = (
+        (x - half).abs() - (half - inset - radius),
+        (y - half).abs() - (half - inset - radius),
+    );
+    let outside = dx.max(0.0).hypot(dy.max(0.0)) + dx.max(dy).min(0.0) - radius;
+    if outside > 0.0 {
+        return None;
+    }
+    let pitch = size * 0.24;
+    let hole = size * 0.075;
+    let in_hole = [-1.0, 0.0, 1.0].iter().any(|col| {
+        [-0.5, 0.5]
+            .iter()
+            .any(|row| (x - half - col * pitch).hypot(y - half - row * pitch * 1.25) < hole)
+    });
+    Some(if in_hole { 0.3 } else { 1.0 })
+}
+
+pub fn draw(tone: Tone) -> HICON {
+    let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.clamp(16, 64) as usize;
+    let [r, g, b] = tone.rgb();
+    const SS: usize = 4;
+    let pixels: Vec<u8> = (0..size * size)
+        .flat_map(|i| {
+            let (px, py) = ((i % size) as f32, (i / size) as f32);
+            let (hits, light) = (0..SS * SS)
+                .filter_map(|s| {
+                    let (sx, sy) = ((s % SS) as f32 + 0.5, (s / SS) as f32 + 0.5);
+                    shade(size as f32, px + sx / SS as f32, py + sy / SS as f32)
+                })
+                .fold((0.0, 0.0), |(n, sum), l| (n + 1.0, sum + l));
+            let alpha = hits / (SS * SS) as f32;
+            let lit = |c: u8| (f32::from(c) * light / hits.max(1.0) * alpha) as u8;
+            [lit(b), lit(g), lit(r), (alpha * 255.0) as u8]
+        })
+        .collect();
+    let mask = vec![0u8; size.div_ceil(16) * 2 * size];
+    unsafe {
+        let color = CreateBitmap(size as i32, size as i32, 1, 32, pixels.as_ptr().cast());
+        let mono = CreateBitmap(size as i32, size as i32, 1, 1, mask.as_ptr().cast());
+        let info = ICONINFO {
+            fIcon: 1,
+            xHotspot: 0,
+            yHotspot: 0,
+            hbmMask: mono,
+            hbmColor: color,
+        };
+        let icon = CreateIconIndirect(&info);
+        DeleteObject(color);
+        DeleteObject(mono);
+        icon
+    }
+}
+
+fn copy_wide<const N: usize>(dst: &mut [u16; N], text: &str) {
+    let mut units = text.encode_utf16().take(N - 1).chain(std::iter::repeat(0));
+    dst.fill_with(|| units.next().unwrap_or(0));
+}
+
+pub struct Tray {
+    data: NOTIFYICONDATAW,
+    tone: Option<Tone>,
+    tip: String,
+}
+
+impl Tray {
+    pub fn new(hwnd: HWND, message: u32) -> Self {
+        let mut data: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
+        data.cbSize = size_of::<NOTIFYICONDATAW>() as u32;
+        data.hWnd = hwnd;
+        data.uID = 1;
+        data.uCallbackMessage = message;
+        Self {
+            data,
+            tone: None,
+            tip: String::new(),
+        }
+    }
+
+    pub fn add(&mut self) {
+        self.data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+        self.data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
+        unsafe {
+            Shell_NotifyIconW(NIM_ADD, &self.data);
+            Shell_NotifyIconW(NIM_SETVERSION, &self.data);
+        }
+    }
+
+    pub fn update(&mut self, tone: Tone, tip: &str) {
+        if self.tone == Some(tone) && self.tip == tip {
+            return;
+        }
+        if self.tone != Some(tone) {
+            let old = std::mem::replace(&mut self.data.hIcon, draw(tone));
+            if !old.is_null() {
+                unsafe { DestroyIcon(old) };
+            }
+        }
+        let first = self.tone.is_none();
+        self.tone = Some(tone);
+        self.tip = tip.to_owned();
+        copy_wide(&mut self.data.szTip, tip);
+        if first {
+            self.add();
+        } else {
+            self.data.uFlags = NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+            unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.data) };
+        }
+    }
+
+    pub fn readd(&mut self) {
+        if self.tone.is_some() {
+            self.add();
+        }
+    }
+
+    pub fn balloon(&mut self, severity: Severity, title: &str, body: &str) {
+        copy_wide(&mut self.data.szInfoTitle, title);
+        copy_wide(&mut self.data.szInfo, body);
+        self.data.dwInfoFlags = match severity {
+            Severity::Info => NIIF_INFO | NIIF_RESPECT_QUIET_TIME,
+            Severity::Warn => NIIF_WARNING,
+            Severity::Crit => NIIF_ERROR,
+        };
+        self.data.uFlags = NIF_INFO;
+        unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.data) };
+    }
+}
+
+impl Drop for Tray {
+    fn drop(&mut self) {
+        unsafe {
+            Shell_NotifyIconW(NIM_DELETE, &self.data);
+            if !self.data.hIcon.is_null() {
+                DestroyIcon(self.data.hIcon);
+            }
+        }
+    }
+}

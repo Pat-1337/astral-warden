@@ -1,0 +1,12 @@
+[Unit]
+Description=Astral Warden 12V-2x6 watchdog
+After=systemd-modules-load.service nvidia-persistenced.service
+
+[Service]
+ExecStart=@BIN@ run --config @CONFIG@
+Restart=always
+RestartSec=5
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

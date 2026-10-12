@@ -1,0 +1,3 @@
+#!/bin/sh
+modprobe -q i2c-dev 2>/dev/null
+exec @BIN@ run --config @CONFIG@ 2>&1

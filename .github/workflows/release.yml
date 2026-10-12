@@ -1,0 +1,70 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --locked
+      - shell: pwsh
+        run: |
+          $name = "astral-warden-${{ github.ref_name }}-windows-x86_64"
+          New-Item -ItemType Directory $name | Out-Null
+          Copy-Item target/release/astral-warden.exe, README.md, LICENSE $name
+          Compress-Archive $name "$name.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: "*.zip"
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - run: |
+          bin=target/x86_64-unknown-linux-musl/release/astral-warden
+          for flavor in systemd openrc runit; do
+            name="astral-warden-${GITHUB_REF_NAME}-linux-x86_64-${flavor}"
+            mkdir -p "$name/init"
+            cp "$bin" README.md LICENSE "$name/"
+            cp init/modules-load.conf "$name/init/"
+            case $flavor in
+              systemd) cp init/astral-warden.service "$name/init/" ;;
+              openrc)  cp init/astral-warden.openrc "$name/init/" ;;
+              runit)   cp init/astral-warden.runit "$name/init/" ;;
+            esac
+            tar czf "$name.tar.gz" "$name"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: "*.tar.gz"
+
+  publish:
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - run: sha256sum *.zip *.tar.gz > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.zip
+            *.tar.gz
+            SHA256SUMS
+          generate_release_notes: true

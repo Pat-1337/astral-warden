@@ -1,0 +1,18 @@
+#!/sbin/openrc-run
+
+description="Astral Warden 12V-2x6 watchdog"
+command="@BIN@"
+command_args="run --config @CONFIG@"
+supervisor="supervise-daemon"
+respawn_delay=5
+output_log="/var/log/astral-warden.log"
+error_log="/var/log/astral-warden.log"
+
+depend() {
+    need localmount
+    after modules
+}
+
+start_pre() {
+    modprobe -q i2c-dev || true
+}
