@@ -11,7 +11,7 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release --locked
       - shell: pwsh
@@ -20,7 +20,7 @@ jobs:
           New-Item -ItemType Directory $name | Out-Null
           Copy-Item target/release/astral-warden.exe, README.md, LICENSE $name
           Compress-Archive $name "$name.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: "*.zip"
@@ -28,7 +28,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: mlugg/setup-zig@v2
       - uses: taiki-e/install-action@v2
@@ -49,7 +49,7 @@ jobs:
             esac
             tar czf "$name.tar.gz" "$name"
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: "*.tar.gz"
@@ -57,7 +57,7 @@ jobs:
   omarchy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: mlugg/setup-zig@v2
       - uses: taiki-e/install-action@v2
@@ -71,7 +71,7 @@ jobs:
           cp init/modules-load.conf init/astral-warden.service "$name/init/"
           cp omarchy/manifest.json omarchy/BarWidget.qml "$name/omarchy/"
           tar czf "$name.tar.gz" "$name"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: omarchy
           path: "*.tar.gz"
@@ -80,10 +80,10 @@ jobs:
     needs: [windows, linux, omarchy]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: src
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
       - run: sha256sum *.zip *.tar.gz > SHA256SUMS
@@ -107,7 +107,7 @@ jobs:
       AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
     steps:
       - if: env.AUR_KEY != ''
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - if: env.AUR_KEY != ''
         run: sed -i "s/^pkgver=.*/pkgver=${GITHUB_REF_NAME#v}/; s/^pkgrel=.*/pkgrel=1/" packaging/aur/PKGBUILD
       - if: env.AUR_KEY != ''
