@@ -2,7 +2,7 @@
 
 ## Scoop (Windows)
 
-Each release attaches `astral-warden.json`, a Scoop manifest generated from `packaging/scoop/astral-warden.json` with the version and zip hash filled in.
+Each release attaches `astral-warden.json`, a Scoop manifest generated from `packaging/scoop/astral-warden.json` with the version and portable zip hash filled in. Scoop installs the portable build and persists `astral-warden.toml` and `astral-warden.log` across updates.
 
 ```
 scoop install https://github.com/Pat-1337/astral-warden/releases/latest/download/astral-warden.json
@@ -46,3 +46,11 @@ The package was test-built in an `archlinux` container (x86_64 under emulation; 
 ```
 updpkgsums && makepkg -f && namcap PKGBUILD *.pkg.tar.zst
 ```
+
+## Windows release files
+
+| File | Build |
+|---|---|
+| `astral-warden-<tag>-windows-x86_64-setup.exe` | installer (default features) |
+| `astral-warden-<tag>-windows-x86_64-portable.zip` | portable (`--features portable`) |
+| `astral-warden-<tag>-windows-x86_64.zip` | installer build in the 0.8.0 layout, so 0.8.0's updater can find it. Drop it once nobody runs 0.8.0. |

@@ -12,6 +12,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const DIR: &str = "/run/astral-warden";
 const STATUS: &str = "/run/astral-warden/status.json";
 const STAGED: &str = "/run/astral-warden/status.json.new";
+const REQUEST: &str = "/run/astral-warden/check-update";
 const PUBLISH_EVERY: Duration = Duration::from_secs(1);
 const STALE_SECS: u64 = 5;
 const CLEAR_SCREEN: &str = "\x1b[H\x1b[2J";
@@ -24,6 +25,7 @@ pub enum Action {
     Install,
     Uninstall,
     Refresh,
+    Update,
     Watch,
 }
 
@@ -33,8 +35,9 @@ impl Action {
             Some("install") => Ok(Self::Install),
             Some("uninstall") => Ok(Self::Uninstall),
             Some("refresh") => Ok(Self::Refresh),
+            Some("update") => Ok(Self::Update),
             Some("watch") => Ok(Self::Watch),
-            _ => Err("usage: astral-warden omarchy [install|uninstall|watch]".into()),
+            _ => Err("usage: astral-warden omarchy [install|uninstall|update|watch]".into()),
         }
     }
 
@@ -43,6 +46,7 @@ impl Action {
             Self::Install => install(),
             Self::Uninstall => uninstall(),
             Self::Refresh => refresh(),
+            Self::Update => request_update(),
             Self::Watch => watch(),
         }
     }
@@ -52,16 +56,26 @@ pub struct Publisher {
     at: Option<Instant>,
     level: &'static str,
     buf: String,
+    requested: Option<SystemTime>,
+}
+
+fn modified(path: &str) -> Option<SystemTime> {
+    fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
 impl Publisher {
     pub fn new() -> Self {
+        use std::os::unix::fs::PermissionsExt;
+
         let _ = fs::create_dir_all(DIR);
+        let _ = fs::remove_file(REQUEST);
+        let _ = fs::write(REQUEST, "").and_then(|()| fs::set_permissions(REQUEST, fs::Permissions::from_mode(0o666)));
 
         Self {
             at: None,
             level: "",
             buf: String::with_capacity(512),
+            requested: modified(REQUEST),
         }
     }
 
@@ -77,12 +91,19 @@ impl Publisher {
         render(&mut self.buf, level, warden);
 
         let _ = fs::write(STAGED, &self.buf).and_then(|()| fs::rename(STAGED, STATUS));
+
+        let requested = modified(REQUEST);
+        if requested != self.requested {
+            self.requested = requested;
+            crate::update::check_now();
+        }
     }
 }
 
 impl Drop for Publisher {
     fn drop(&mut self) {
         let _ = fs::remove_file(STATUS);
+        let _ = fs::remove_file(REQUEST);
     }
 }
 
@@ -164,6 +185,25 @@ fn strings(json: &str) -> Vec<String> {
 fn ts(json: &str) -> Option<u64> {
     let rest = json.split_once(r#""ts":"#)?.1;
     rest.split(',').next()?.parse().ok()
+}
+
+fn request_update() -> Result<(), String> {
+    use std::io::Write as _;
+
+    fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(REQUEST)
+        .and_then(|mut file| file.write_all(now().to_string().as_bytes()))
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => {
+                "the service is not running; start it with `sudo astral-warden install`".into()
+            }
+            _ => format!("{REQUEST}: {e}"),
+        })?;
+
+    println!("checking for updates; the result shows as a notification");
+    Ok(())
 }
 
 fn watch() -> Result<(), String> {

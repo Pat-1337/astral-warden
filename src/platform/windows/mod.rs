@@ -1,6 +1,10 @@
 mod hwinfo;
+mod install;
 mod nvapi;
+mod registry;
 mod tray;
+
+pub use install::{adopt, install, uninstall};
 
 use crate::config::{self, Config};
 use crate::display;
@@ -10,6 +14,7 @@ use crate::log;
 use crate::sensor::{Reading, Sensor};
 use crate::warden::{Host, Severity, Warden};
 use hwinfo::HwInfo;
+use install::{autostart_enabled, install_args, is_admin, refresh_registration, relaunch_elevated, uninstall_args};
 use nvapi::{NvApi, NvI2c};
 use std::cell::{Cell, RefCell};
 use std::os::windows::process::CommandExt;
@@ -34,34 +39,32 @@ use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS
 use windows_sys::Win32::System::Shutdown::{
     InitiateSystemShutdownExW, SHTDN_REASON_FLAG_PLANNED, SHTDN_REASON_MAJOR_HARDWARE, SHTDN_REASON_MINOR_ENVIRONMENT,
 };
-use windows_sys::Win32::System::Threading::{
-    CreateMutexW, GetCurrentProcess, GetExitCodeProcess, INFINITE, OpenProcessToken, WaitForSingleObject,
-};
+use windows_sys::Win32::System::Threading::{CreateMutexW, GetCurrentProcess, OpenProcessToken};
 use windows_sys::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
-use windows_sys::Win32::UI::Shell::{
-    IsUserAnAdmin, NIN_SELECT, NINF_KEY, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW,
-    ShellExecuteW,
-};
+use windows_sys::Win32::UI::Shell::{NIN_SELECT, NINF_KEY, ShellExecuteW};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, ChangeWindowMessageFilterEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
-    DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, KillTimer, MB_ICONERROR, MB_ICONHAND,
-    MB_ICONINFORMATION, MB_ICONWARNING, MB_SETFOREGROUND, MB_TOPMOST, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING,
-    MF_UNCHECKED, MSG, MSGFLT_ALLOW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
-    RegisterWindowMessageW, SW_HIDE, SW_SHOWNORMAL, SetForegroundWindow, SetMenuDefaultItem, SetTimer, TPM_NONOTIFY,
-    TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP, WM_CONTEXTMENU, WM_DESTROY,
-    WM_ENDSESSION, WM_NULL, WM_QUERYENDSESSION, WM_TIMER, WNDCLASSW,
+    DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, KillTimer, MB_ICONERROR, MB_ICONHAND, MB_ICONWARNING,
+    MB_SETFOREGROUND, MB_TOPMOST, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MF_UNCHECKED, MSG, MSGFLT_ALLOW,
+    MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SW_SHOWNORMAL,
+    SetForegroundWindow, SetMenuDefaultItem, SetTimer, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu,
+    TranslateMessage, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION, WM_NULL, WM_QUERYENDSESSION, WM_TIMER,
+    WNDCLASSW,
 };
 
-const TASK: &str = "AstralWarden";
+const WINDOW_CLASS: &str = "AstralWarden";
 const WM_TRAY: u32 = WM_APP + 1;
 const POLL_TIMER: usize = 1;
 const WM_AUTOSTART: u32 = WM_APP + 2;
+const WM_AUTO_UPDATE: u32 = WM_APP + 3;
 const TIP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 const MENU_INFO: usize = 9;
 const MENU_AUTOSTART: usize = 13;
 const MENU_CONFIG: usize = 10;
 const MENU_LOG: usize = 11;
 const MENU_EXIT: usize = 12;
+const MENU_UPDATE: usize = 14;
+const MENU_AUTO_UPDATE: usize = 15;
 const NIN_KEYSELECT: u32 = NIN_SELECT | NINF_KEY;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -78,6 +81,7 @@ struct App {
     config: PathBuf,
     started: Instant,
     autostart: bool,
+    auto_update: bool,
     shown: Option<(Tone, Instant)>,
     greet: bool,
 }
@@ -305,6 +309,7 @@ struct MenuInfo {
     device: String,
     rows: Vec<(String, String)>,
     autostart: bool,
+    auto_update: bool,
     config: PathBuf,
 }
 
@@ -329,6 +334,7 @@ fn menu_info() -> Option<MenuInfo> {
             device: app.warden.name().to_owned(),
             rows,
             autostart: app.autostart,
+            auto_update: app.auto_update,
             config: app.config.clone(),
         }
     })
@@ -355,6 +361,13 @@ fn show_menu(hwnd: HWND) {
         AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
         let check = if info.autostart { MF_CHECKED } else { MF_UNCHECKED };
         item(MF_STRING | check, MENU_AUTOSTART, "Start at logon");
+        let check = match (crate::update::available(), info.auto_update) {
+            (false, _) => MF_GRAYED | MF_UNCHECKED,
+            (true, true) => MF_CHECKED,
+            (true, false) => MF_UNCHECKED,
+        };
+        item(MF_STRING | check, MENU_AUTO_UPDATE, "Auto update");
+        item(MF_STRING, MENU_UPDATE, "Check for updates");
         item(MF_STRING, MENU_CONFIG, "Open config");
         item(MF_STRING, MENU_LOG, "Open log");
         AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
@@ -374,6 +387,8 @@ fn show_menu(hwnd: HWND) {
 
     match command {
         MENU_AUTOSTART => toggle_autostart(hwnd, !info.autostart, info.config),
+        MENU_UPDATE => crate::update::check_now(),
+        MENU_AUTO_UPDATE => toggle_auto_update(hwnd, !info.auto_update, info.config),
         MENU_CONFIG => {
             let _ = Config::write_default(&info.config);
             open_in_shell(&info.config);
@@ -407,7 +422,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                     app.tray.balloon(severity, &title, &body);
                 }
 
-                crate::update::due(&app.warden)
+                crate::update::tick(&app.warden, &mut app.tray)
             });
 
             if restart == Some(true) {
@@ -430,6 +445,23 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                     (true, true) => (Severity::Info, "Starts at every logon."),
                     (true, false) => (Severity::Info, "No longer starts at logon."),
                     (false, _) => (Severity::Warn, "Changing autostart failed. See the log."),
+                };
+                app.tray.balloon(severity, display::app(), body);
+            });
+            0
+        }
+
+        WM_AUTO_UPDATE => {
+            with_app(|app| {
+                let (ok, enabled) = (wparam != 0, lparam != 0);
+                if ok {
+                    app.auto_update = enabled;
+                }
+
+                let (severity, body) = match (ok, enabled) {
+                    (true, true) => (Severity::Info, "Auto update on. New versions install at startup."),
+                    (true, false) => (Severity::Info, "Auto update off."),
+                    (false, _) => (Severity::Warn, "Changing auto update failed. See the log."),
                 };
                 app.tray.balloon(severity, display::app(), body);
             });
@@ -464,8 +496,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
 
 pub fn run(warden: Warden, cfg: &Config, config: &Path, silent: bool) -> Result<(), String> {
     log::to_file(log_path());
+    refresh_registration();
     unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
-    let class = wide("AstralWarden");
+    let class = wide(WINDOW_CLASS);
 
     let hwnd = unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
@@ -508,6 +541,7 @@ pub fn run(warden: Warden, cfg: &Config, config: &Path, silent: bool) -> Result<
         config: config.to_path_buf(),
         started: Instant::now(),
         autostart: autostart_enabled(),
+        auto_update: cfg.auto_update,
         shown: None,
         greet: !silent,
     };
@@ -525,229 +559,6 @@ pub fn run(warden: Warden, cfg: &Config, config: &Path, silent: bool) -> Result<
     }
 
     APP.with(|cell| cell.borrow_mut().take());
-    Ok(())
-}
-
-fn copy_with_retry(from: &Path, to: &Path) -> Result<(), String> {
-    let mut result = std::fs::copy(from, to);
-
-    for _ in 0..20 {
-        if result.is_ok() {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(250));
-        result = std::fs::copy(from, to);
-    }
-
-    result.map(drop).map_err(|e| format!("{}: {e}", to.display()))
-}
-
-fn scoop_current(exe: &Path) -> Option<PathBuf> {
-    let parts: Vec<_> = exe.components().collect();
-    let apps = parts.iter().position(|c| c.as_os_str().eq_ignore_ascii_case("apps"))?;
-    let scoop = parts.get(apps.checked_sub(1)?)?;
-
-    if !scoop.as_os_str().eq_ignore_ascii_case("scoop") || parts.len() < apps + 3 {
-        return None;
-    }
-
-    let mut path: PathBuf = parts[..apps + 2].iter().collect();
-    path.push("current");
-    path.push(exe.file_name()?);
-    Some(path)
-}
-
-fn install_dir() -> PathBuf {
-    std::env::var_os("ProgramFiles")
-        .map_or_else(|| PathBuf::from(r"C:\Program Files"), PathBuf::from)
-        .join("AstralWarden")
-}
-
-fn xml_escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
-fn task_xml(exe: &Path, config: &Path) -> String {
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>12V-2x6 per-pin watchdog</Description></RegistrationInfo>
-  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
-  <Principals>
-    <Principal id="Author"><GroupId>S-1-5-32-545</GroupId><RunLevel>HighestAvailable</RunLevel></Principal>
-  </Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <AllowHardTerminate>true</AllowHardTerminate>
-    <StartWhenAvailable>true</StartWhenAvailable>
-    <IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings>
-    <AllowStartOnDemand>true</AllowStartOnDemand>
-    <Enabled>true</Enabled>
-    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <Priority>4</Priority>
-    <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>
-  </Settings>
-  <Actions Context="Author">
-    <Exec><Command>"{}"</Command><Arguments>run --wait --silent --config "{}"</Arguments></Exec>
-  </Actions>
-</Task>
-"#,
-        xml_escape(&exe.to_string_lossy()),
-        xml_escape(&config.to_string_lossy())
-    )
-}
-
-fn is_admin() -> bool {
-    unsafe { IsUserAnAdmin() != 0 }
-}
-
-fn relaunch_elevated(args: &str, wait: bool) -> Result<u32, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let (verb, file, params) = (wide("runas"), wide(&exe.to_string_lossy()), wide(args));
-
-    let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
-    info.cbSize = size_of::<SHELLEXECUTEINFOW>() as u32;
-    info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
-    info.lpVerb = verb.as_ptr();
-    info.lpFile = file.as_ptr();
-    info.lpParameters = params.as_ptr();
-    info.nShow = SW_HIDE;
-
-    if unsafe { ShellExecuteExW(&mut info) } == 0 {
-        return Err("administrator rights are required".into());
-    }
-
-    let mut code = 0;
-    unsafe {
-        if wait {
-            WaitForSingleObject(info.hProcess, INFINITE);
-            GetExitCodeProcess(info.hProcess, &mut code);
-        }
-        CloseHandle(info.hProcess);
-    }
-
-    Ok(code)
-}
-
-fn report(message: &str) {
-    println!("{message}");
-    if !CONSOLE.load(Ordering::Relaxed) {
-        let (text, title) = (wide(message), wide("Astral Warden"));
-        unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_ICONINFORMATION) };
-    }
-}
-
-fn install_args(config: &Path, background: bool) -> String {
-    let flag = if background { " --background" } else { "" };
-    format!("install --config \"{}\"{flag}", config.display())
-}
-
-fn uninstall_args(background: bool) -> String {
-    format!("uninstall{}", if background { " --background" } else { "" })
-}
-
-fn autostart_enabled() -> bool {
-    hidden("schtasks", &["/Query", "/TN", TASK]).is_ok()
-}
-
-pub fn install(config: &Path, background: bool) -> Result<(), String> {
-    if !is_admin() {
-        relaunch_elevated(&install_args(config, background), false)?;
-        println!("continuing elevated");
-        return Ok(());
-    }
-
-    if background {
-        log::to_file(log_path());
-    }
-
-    let dir = install_dir();
-    let exe = dir.join("astral-warden.exe");
-
-    if !background {
-        let _ = hidden("schtasks", &["/End", "/TN", TASK]);
-    }
-
-    let current = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe = match scoop_current(&current) {
-        Some(scoop) => scoop,
-        None => {
-            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            if current != exe {
-                copy_with_retry(&current, &exe)?;
-            }
-            exe
-        }
-    };
-
-    if Config::write_default(config).map_err(|e| format!("{}: {e}", config.display()))? {
-        println!("wrote {}", config.display());
-    }
-
-    let xml_path = std::env::temp_dir().join("astral-warden-task.xml");
-    let bytes: Vec<u8> = [0xFEFF]
-        .into_iter()
-        .chain(task_xml(&exe, config).encode_utf16())
-        .flat_map(u16::to_le_bytes)
-        .collect();
-    std::fs::write(&xml_path, bytes).map_err(|e| format!("{}: {e}", xml_path.display()))?;
-
-    let created = hidden(
-        "schtasks",
-        &["/Create", "/F", "/TN", TASK, "/XML", &xml_path.to_string_lossy()],
-    );
-    let _ = std::fs::remove_file(&xml_path);
-    created?;
-
-    if background {
-        log!("logon task registered for {}", exe.display());
-        return Ok(());
-    }
-
-    hidden("schtasks", &["/Run", "/TN", TASK])?;
-    report(&format!(
-        "Installed to {} and started. It runs at every logon.",
-        exe.display()
-    ));
-    Ok(())
-}
-
-pub fn uninstall(background: bool) -> Result<(), String> {
-    if !is_admin() {
-        relaunch_elevated(&uninstall_args(background), false)?;
-        println!("continuing elevated");
-        return Ok(());
-    }
-
-    if background {
-        log::to_file(log_path());
-    } else {
-        let _ = hidden("schtasks", &["/End", "/TN", TASK]);
-    }
-
-    hidden("schtasks", &["/Delete", "/F", "/TN", TASK])?;
-
-    let dir = install_dir();
-    let exe = dir.join("astral-warden.exe");
-    if std::env::current_exe().is_ok_and(|current| current != exe) {
-        let _ = std::fs::remove_file(&exe);
-        let _ = std::fs::remove_dir(&dir);
-    }
-
-    if background {
-        log!("logon task removed");
-        return Ok(());
-    }
-
-    report(&format!(
-        "Uninstalled. Config kept at {}.",
-        config::default_path().display()
-    ));
     Ok(())
 }
 
@@ -770,6 +581,28 @@ fn toggle_autostart(hwnd: HWND, enable: bool, config: PathBuf) {
         };
 
         unsafe { PostMessageW(hwnd as HWND, WM_AUTOSTART, usize::from(ok), isize::from(enable)) };
+    });
+}
+
+fn toggle_auto_update(hwnd: HWND, enable: bool, config: PathBuf) {
+    let hwnd = hwnd as isize;
+
+    std::thread::spawn(move || {
+        let ok = match is_admin() {
+            true => Config::set_auto_update(&config, enable)
+                .inspect_err(|e| failed("change auto update", e))
+                .is_ok(),
+            false => {
+                let args = format!(
+                    "auto-update {} --config \"{}\"",
+                    if enable { "on" } else { "off" },
+                    config.display()
+                );
+                relaunch_elevated(&args, true).is_ok_and(|code| code == 0)
+            }
+        };
+
+        unsafe { PostMessageW(hwnd as HWND, WM_AUTO_UPDATE, usize::from(ok), isize::from(enable)) };
     });
 }
 

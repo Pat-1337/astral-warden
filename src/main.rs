@@ -27,10 +27,12 @@ use std::process::ExitCode;
 use std::time::Duration;
 use warden::Warden;
 
-#[cfg(not(all(feature = "omarchy", target_os = "linux")))]
+#[cfg(not(updater))]
 const USAGE: &str = "astral-warden [run|status|install|uninstall|config] [--config <path>] [--wait] [--silent] [--background] [--watch]";
-#[cfg(all(feature = "omarchy", target_os = "linux"))]
-const USAGE: &str = "astral-warden [run|status|install|uninstall|config|omarchy <install|uninstall|watch>] [--config <path>] [--wait] [--silent] [--background] [--watch]";
+#[cfg(all(updater, not(feature = "omarchy")))]
+const USAGE: &str = "astral-warden [run|status|install|uninstall|config|auto-update <on|off>] [--config <path>] [--wait] [--silent] [--background] [--watch]";
+#[cfg(all(updater, feature = "omarchy"))]
+const USAGE: &str = "astral-warden [run|status|install|uninstall|config|auto-update <on|off>|omarchy <install|uninstall|update|watch>] [--config <path>] [--wait] [--silent] [--background] [--watch]";
 const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 enum Command {
@@ -41,6 +43,8 @@ enum Command {
     Defaults,
     #[cfg(all(feature = "omarchy", target_os = "linux"))]
     Omarchy(omarchy::Action),
+    #[cfg(updater)]
+    AutoUpdate(bool),
     Print(&'static str),
 }
 
@@ -71,6 +75,14 @@ fn parse() -> Result<Args, String> {
             "config" => command = Command::Defaults,
             #[cfg(all(feature = "omarchy", target_os = "linux"))]
             "omarchy" => command = Command::Omarchy(omarchy::Action::parse(args.next())?),
+            #[cfg(updater)]
+            "auto-update" => {
+                command = match args.next().as_deref() {
+                    Some("on") => Command::AutoUpdate(true),
+                    Some("off") => Command::AutoUpdate(false),
+                    _ => return Err("usage: astral-warden auto-update <on|off>".into()),
+                }
+            }
             "--silent" => silent = true,
             "--wait" => wait = true,
             "--background" => background = true,
@@ -223,6 +235,11 @@ fn lock(wait: bool) -> Result<platform::Lock, String> {
 }
 
 fn run(cfg: Config, config_path: &Path, wait: bool, silent: bool, updated: Option<String>) -> Result<(), String> {
+    #[cfg(windows)]
+    if platform::adopt(config_path) {
+        return Ok(());
+    }
+
     let _lock = lock(wait)?;
     let Device {
         name,
@@ -275,6 +292,14 @@ fn main() -> ExitCode {
         }
         #[cfg(all(feature = "omarchy", target_os = "linux"))]
         Command::Omarchy(action) => action.run(),
+        #[cfg(updater)]
+        Command::AutoUpdate(enabled) => Config::set_auto_update(&args.config, enabled).map(|()| {
+            println!(
+                "auto update {} in {}",
+                if enabled { "on" } else { "off" },
+                args.config.display()
+            )
+        }),
         Command::Defaults => {
             print!("{}", Config::default_text());
             Ok(())

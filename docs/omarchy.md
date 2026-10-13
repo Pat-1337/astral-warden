@@ -27,7 +27,7 @@ astral-warden omarchy uninstall
 | Warning, recovering, sensor unreadable, shutdown | the same, in the theme's urgent colour |
 | Service not running | dimmed bolt |
 
-Hover for every pin, total power, balance, board power, power cap, and shutdown arming. Click to open `astral-warden omarchy watch` in a floating terminal.
+Hover for every pin, total power, balance, board power, power cap, and shutdown arming. Click to open `astral-warden omarchy watch` in a floating terminal. Right-click to check for updates: a notification says whether one was found, and a found update installs on its own.
 
 Notifications go through `notify-send`, which the Omarchy shell shows.
 

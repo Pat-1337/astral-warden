@@ -9,10 +9,12 @@ astral-warden [command] [flags]
 | `run` (default) | Monitor. Tray app on Windows, service loop on Linux. |
 | `status` | Print one reading and exit. |
 | `install` | Install for autostart (logon task on Windows; systemd, OpenRC, or runit service on Linux). |
-| `uninstall` | Remove the autostart entry. The config is kept. |
+| `uninstall` | Remove everything: binary (installer build), service or logon task, config, log, state, registry entries. |
 | `config` | Print the default config. |
 | `omarchy install` | `-omarchy` build only: add the bar widget for the current user. See [Omarchy](omarchy.md). |
 | `omarchy uninstall` | `-omarchy` build only: remove the bar widget. |
+| `auto-update <on\|off>` | Windows and Omarchy builds: set `auto_update` in the config. Needs root / admin. |
+| `omarchy update` | `-omarchy` build only: ask the service to check for updates now; the result shows as a notification. |
 | `omarchy watch` | `-omarchy` build only: show the service's readings live, without root. |
 
 | Flag | Does |

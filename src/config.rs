@@ -119,22 +119,68 @@ impl Config {
         }
     }
 
+    #[cfg_attr(not(updater), allow(dead_code))]
+    pub fn set_auto_update(path: &Path, enabled: bool) -> Result<(), String> {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::default_text(),
+            Err(e) => return Err(format!("{}: {e}", path.display())),
+        };
+
+        let mut lines: Vec<&str> = text.lines().collect();
+        let line = format!("auto_update = {enabled}");
+        let top = lines
+            .iter()
+            .position(|l| l.trim_start().starts_with('['))
+            .unwrap_or(lines.len());
+
+        let existing = lines[..top]
+            .iter()
+            .position(|l| l.trim_start().starts_with("auto_update"));
+        let last = lines[..top].iter().rposition(|l| !l.trim().is_empty());
+
+        match (existing, last) {
+            (Some(i), _) => lines[i] = &line,
+            (None, Some(i)) => lines.insert(i + 1, &line),
+            (None, None) => lines.insert(0, &line),
+        }
+
+        let updated = lines.join("\n") + "\n";
+        toml::from_str::<Self>(&updated)
+            .map_err(|e| format!("{}: {e}", path.display()))?
+            .validated()?;
+
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        std::fs::write(path, updated).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
     pub fn poll(&self) -> Duration {
         Duration::from_millis(self.poll_ms)
     }
 }
 
 pub fn default_path() -> PathBuf {
-    #[cfg(windows)]
-    let base = std::env::var_os("ProgramData").map_or_else(|| PathBuf::from(r"C:\ProgramData"), PathBuf::from);
-    #[cfg(not(windows))]
-    let base = PathBuf::from("/etc");
+    #[cfg(all(windows, feature = "portable"))]
+    return std::env::current_exe()
+        .unwrap_or_else(|_| PathBuf::from("astral-warden.exe"))
+        .with_file_name("astral-warden.toml");
 
-    base.join("astral-warden").join("config.toml")
+    #[cfg(all(windows, not(feature = "portable")))]
+    return std::env::var_os("ProgramData")
+        .map_or_else(|| PathBuf::from(r"C:\ProgramData"), PathBuf::from)
+        .join("astral-warden")
+        .join("config.toml");
+
+    #[cfg(not(windows))]
+    return PathBuf::from("/etc/astral-warden/config.toml");
 }
 
 pub fn state_path() -> PathBuf {
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "portable"))]
+    return default_path().with_file_name("astral-warden.power-cap");
+    #[cfg(all(windows, not(feature = "portable")))]
     return default_path().with_file_name("power-cap.state");
     #[cfg(target_os = "linux")]
     return PathBuf::from("/run/astral-warden.power-cap");
@@ -143,7 +189,9 @@ pub fn state_path() -> PathBuf {
 }
 
 pub fn note_path() -> PathBuf {
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "portable"))]
+    return default_path().with_file_name("astral-warden.last-shutdown");
+    #[cfg(all(windows, not(feature = "portable")))]
     return default_path().with_file_name("last-shutdown.txt");
     #[cfg(target_os = "linux")]
     return PathBuf::from("/var/lib/astral-warden/last-shutdown");

@@ -1,6 +1,7 @@
+use crate::display;
 use crate::log;
 use crate::sha256;
-use crate::warden::Warden;
+use crate::warden::{Host, Severity, Warden};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -13,61 +14,72 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 const NETWORK_WAIT: Duration = Duration::from_secs(30);
 const CURL: &[&str] = &["-fsSL", "--proto", "=https", "--retry", "3", "--retry-connrefused"];
 
-#[cfg(windows)]
-const FLAVOR: &str = "windows-x86_64";
-#[cfg(windows)]
-const ARCHIVE: &str = "zip";
-#[cfg(windows)]
-const MEMBER: &str = "astral-warden.exe";
+struct Asset {
+    stem: &'static str,
+    ext: &'static str,
+    member: Option<&'static str>,
+}
+
+#[cfg(all(windows, not(feature = "portable")))]
+const ASSET: Asset = Asset {
+    stem: "windows-x86_64-setup",
+    ext: "exe",
+    member: None,
+};
+
+#[cfg(all(windows, feature = "portable"))]
+const ASSET: Asset = Asset {
+    stem: "windows-x86_64-portable",
+    ext: "zip",
+    member: Some("astral-warden.exe"),
+};
+
+#[cfg(not(windows))]
+const ASSET: Asset = Asset {
+    stem: "linux-x86_64-omarchy",
+    ext: "tar.gz",
+    member: Some("astral-warden"),
+};
+
 #[cfg(windows)]
 const NULL: &str = "NUL";
+#[cfg(windows)]
+const MANAGED: &str = "Installed with Scoop. Update with: scoop update astral-warden";
 
-#[cfg(not(windows))]
-const FLAVOR: &str = "linux-x86_64-omarchy";
-#[cfg(not(windows))]
-const ARCHIVE: &str = "tar.gz";
-#[cfg(not(windows))]
-const MEMBER: &str = "astral-warden";
 #[cfg(not(windows))]
 const NULL: &str = "/dev/null";
+#[cfg(not(windows))]
+const MANAGED: &str = "This copy is updated by its package manager.";
 
 static READY: AtomicBool = AtomicBool::new(false);
+static CHECKING: AtomicBool = AtomicBool::new(false);
+static NOTICED: AtomicBool = AtomicBool::new(false);
 static STAGED: Mutex<Option<(String, PathBuf)>> = Mutex::new(None);
+static NOTICE: Mutex<Option<(Severity, String)>> = Mutex::new(None);
 static RESTART: OnceLock<PathBuf> = OnceLock::new();
 
 pub fn start(enabled: bool) {
-    if !enabled {
-        return;
+    if enabled {
+        spawn_check(false);
     }
-
-    let Ok(exe) = std::env::current_exe() else {
-        return;
-    };
-
-    if managed(&exe) {
-        log!("auto update off: {} is not a standalone install", exe.display());
-        return;
-    }
-
-    let _ = fs::remove_file(sibling(&exe, "failed"));
-    let skip = fs::read_to_string(skip_file(&exe)).ok();
-
-    std::thread::spawn(move || {
-        std::thread::sleep(NETWORK_WAIT);
-
-        match check(skip.as_deref()) {
-            Ok(Some(staged)) => {
-                log!("update {} staged, applying when all pins read OK", staged.0);
-                *STAGED.lock().unwrap_or_else(|e| e.into_inner()) = Some(staged);
-                READY.store(true, Ordering::Release);
-            }
-            Ok(None) => {}
-            Err(e) => log!("update check failed: {e}"),
-        }
-    });
 }
 
-pub fn due(warden: &Warden) -> bool {
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn available() -> bool {
+    std::env::current_exe().is_ok_and(|exe| !managed(&exe))
+}
+
+pub fn check_now() {
+    spawn_check(true);
+}
+
+pub fn tick(warden: &Warden, host: &mut impl Host) -> bool {
+    if NOTICED.swap(false, Ordering::Acquire)
+        && let Some((severity, body)) = NOTICE.lock().unwrap_or_else(|e| e.into_inner()).take()
+    {
+        host.notify(severity, display::app(), &body);
+    }
+
     if !READY.load(Ordering::Acquire) || !warden.settled() {
         return false;
     }
@@ -84,6 +96,7 @@ pub fn due(warden: &Warden) -> bool {
         }
         Err(e) => {
             log!("update to {version} failed: {e}");
+            notice(Severity::Warn, format!("Update to {version} failed: {e}."));
             false
         }
     }
@@ -100,6 +113,79 @@ pub fn after_run(result: Result<(), String>, updated: bool) -> Result<(), String
 
         (result, _) => result,
     }
+}
+
+fn notice(severity: Severity, body: String) {
+    log!("[{severity:?}] {body}");
+    *NOTICE.lock().unwrap_or_else(|e| e.into_inner()) = Some((severity, body));
+    NOTICED.store(true, Ordering::Release);
+}
+
+fn spawn_check(manual: bool) {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+
+    if managed(&exe) {
+        match manual {
+            true => notice(Severity::Info, MANAGED.into()),
+            false => log!("auto update off: {} is not a standalone install", exe.display()),
+        }
+        return;
+    }
+
+    if READY.load(Ordering::Acquire) {
+        if manual {
+            notice(
+                Severity::Info,
+                "An update is ready. It installs once all pins read OK.".into(),
+            );
+        }
+        return;
+    }
+
+    if CHECKING.swap(true, Ordering::AcqRel) {
+        if manual {
+            notice(Severity::Info, "Already checking for updates.".into());
+        }
+        return;
+    }
+
+    let _ = fs::remove_file(sibling(&exe, "failed"));
+    let skip = match manual {
+        true => None,
+        false => fs::read_to_string(skip_file(&exe)).ok(),
+    };
+
+    std::thread::spawn(move || {
+        if !manual {
+            std::thread::sleep(NETWORK_WAIT);
+        }
+
+        match check(skip.as_deref()) {
+            Ok(Some((tag, binary))) => {
+                log!("update {tag} staged, applying when all pins read OK");
+                if manual {
+                    notice(Severity::Info, format!("Update {tag} found. Installing it now."));
+                }
+
+                *STAGED.lock().unwrap_or_else(|e| e.into_inner()) = Some((tag, binary));
+                READY.store(true, Ordering::Release);
+            }
+
+            Ok(None) if manual => notice(Severity::Info, format!("Up to date ({VERSION}).")),
+            Ok(None) => {}
+
+            Err(e) => {
+                log!("update check failed: {e}");
+                if manual {
+                    notice(Severity::Warn, format!("Update check failed: {e}."));
+                }
+            }
+        }
+
+        CHECKING.store(false, Ordering::Release);
+    });
 }
 
 fn managed(exe: &Path) -> bool {
@@ -188,28 +274,38 @@ fn stage(tag: &str) -> Result<PathBuf, String> {
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
 
-    let name = format!("astral-warden-{tag}-{FLAVOR}");
-    let archive = dir.join(format!("{name}.{ARCHIVE}"));
-    let sums = dir.join("SHA256SUMS");
-    download(tag, &format!("{name}.{ARCHIVE}"), &archive)?;
+    let name = format!("astral-warden-{tag}-{}", ASSET.stem);
+    let file = format!("{name}.{}", ASSET.ext);
+    let (download_path, sums) = (dir.join(&file), dir.join("SHA256SUMS"));
+    download(tag, &file, &download_path)?;
     download(tag, "SHA256SUMS", &sums)?;
 
     let expected = fs::read_to_string(&sums)
         .map_err(|e| format!("SHA256SUMS: {e}"))?
         .lines()
-        .find_map(|line| line.strip_suffix(&format!("  {name}.{ARCHIVE}")).map(str::to_owned))
-        .ok_or("archive missing from SHA256SUMS")?;
+        .find_map(|line| line.strip_suffix(&format!("  {file}")).map(str::to_owned))
+        .ok_or_else(|| format!("{file} missing from SHA256SUMS"))?;
 
-    let bytes = fs::read(&archive).map_err(|e| format!("{}: {e}", archive.display()))?;
+    let bytes = fs::read(&download_path).map_err(|e| format!("{}: {e}", download_path.display()))?;
     if sha256::hex(&bytes) != expected.to_ascii_lowercase() {
         return Err("checksum mismatch".into());
     }
 
-    let member = format!("{name}/{MEMBER}");
-    let (archive, dir_arg) = (archive.to_string_lossy(), dir.to_string_lossy());
-    tool("tar", &["-xf", &archive, "-C", &dir_arg, &member])?;
+    let binary = match ASSET.member {
+        None => download_path,
+        Some(member) => {
+            let (archive, dir_arg) = (download_path.to_string_lossy(), dir.to_string_lossy());
+            tool("tar", &["-xf", &archive, "-C", &dir_arg, &format!("{name}/{member}")])?;
+            dir.join(&name).join(member)
+        }
+    };
 
-    let binary = dir.join(&name).join(MEMBER);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&binary, fs::Permissions::from_mode(0o755));
+    }
+
     let version = tool(&binary.to_string_lossy(), &["--version"])?;
     if version != format!("astral-warden {}", tag.trim_start_matches('v')) {
         return Err(format!("staged binary reports {version:?}"));

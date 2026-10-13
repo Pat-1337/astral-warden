@@ -52,7 +52,9 @@ export PATH="$(dirname "$(rustup which rustc)"):$PATH"
 | `src/warden.rs` | Glues sensor, guard, power cap, and notifications |
 | `src/power.rs` | NVML power limit (loaded at runtime) |
 | `src/display.rs` | Number and name formatting for everything shown to users |
-| `src/platform/windows/` | NVAPI I2C, tray, task install, shutdown |
+| `src/platform/windows/` | NVAPI I2C, tray, shutdown |
+| `src/platform/windows/install.rs` | Installer and portable install, logon task, full uninstall |
+| `src/platform/windows/registry.rs` | Apps-list entry and autostart flag in HKLM |
 | `src/platform/linux.rs` | sysfs detection, i2c-dev, init install, poweroff |
 | `src/update.rs` | Self-update for Windows and Omarchy builds (`cfg(updater)`, set by `build.rs`) |
 | `src/sha256.rs` | SHA-256 for checking downloaded releases |
@@ -66,7 +68,9 @@ export PATH="$(dirname "$(rustup which rustc)"):$PATH"
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds:
 
-- `astral-warden-<tag>-windows-x86_64.zip` (MSVC)
+- `astral-warden-<tag>-windows-x86_64-setup.exe` (installer build, MSVC)
+- `astral-warden-<tag>-windows-x86_64-portable.zip` (`--features portable`)
+- `astral-warden-<tag>-windows-x86_64.zip` (installer build for 0.8.0's updater)
 - `astral-warden-<tag>-linux-x86_64-{systemd,openrc,runit}.tar.gz` (glibc 2.17+)
 - `astral-warden-<tag>-linux-x86_64-omarchy.tar.gz` (built with `--features omarchy`, systemd)
 - `SHA256SUMS`

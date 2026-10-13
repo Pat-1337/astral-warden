@@ -240,17 +240,17 @@ pub fn run(warden: Warden, cfg: &Config, _: &Path, _: bool) -> Result<(), String
     #[cfg(feature = "omarchy")]
     let on_tick = {
         let mut publisher = crate::omarchy::Publisher::new();
-        move |w: &Warden| {
+        move |w: &Warden, host: &mut Desktop| {
             publisher.tick(w);
 
-            if crate::update::due(w) {
+            if crate::update::tick(w, host) {
                 unix::stop();
             }
         }
     };
 
     #[cfg(not(feature = "omarchy"))]
-    let on_tick = |_: &Warden| {};
+    let on_tick = |_: &Warden, _: &mut Desktop| {};
 
     unix::run_loop(warden, cfg.poll(), &mut Desktop, on_tick)
 }
@@ -416,13 +416,27 @@ pub fn uninstall(_: bool) -> Result<(), String> {
     init.disable();
     remove(init.service().0)?;
     remove(MODULES)?;
-    remove(BIN)?;
+
+    for suffix in ["", ".old", ".new", ".failed", ".skip"] {
+        remove(&format!("{BIN}{suffix}"))?;
+    }
+
+    remove(&config::state_path().to_string_lossy())?;
+    for dir in [
+        config::default_path(),
+        config::note_path(),
+        PathBuf::from("/run/astral-warden/status.json"),
+    ] {
+        if let Some(dir) = dir.parent() {
+            let _ = fs::remove_dir_all(dir);
+        }
+    }
 
     if matches!(init, Init::Systemd) {
         let _ = spawn_quiet("systemctl", &["daemon-reload"]);
     }
 
-    println!("uninstalled; config kept at {}", config::default_path().display());
+    println!("uninstalled; nothing is left behind");
     Ok(())
 }
 

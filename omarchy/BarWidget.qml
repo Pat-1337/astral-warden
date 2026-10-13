@@ -35,6 +35,8 @@ BarWidget {
       lines.push(row[0] + "  " + row[1])
     }
 
+    lines.push("")
+    lines.push("Right-click: check for updates")
     return lines.join("\n")
   }
 
@@ -68,7 +70,10 @@ BarWidget {
     tooltipText: root.tooltip()
 
     onPressed: function(b) {
-      if (root.bar) root.bar.run("omarchy-launch-floating-terminal-with-presentation astral-warden omarchy watch")
+      if (!root.bar) return
+
+      if (b === Qt.RightButton) root.bar.run("astral-warden omarchy update")
+      else root.bar.run("omarchy-launch-floating-terminal-with-presentation astral-warden omarchy watch")
     }
   }
 }

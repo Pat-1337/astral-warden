@@ -31,7 +31,7 @@ pub fn single_instance() -> Result<Lock, String> {
 }
 
 pub fn run(warden: Warden, cfg: &Config, _: &Path, _: bool) -> Result<(), String> {
-    unix::run_loop(warden, cfg.poll(), &mut Console, |_| {})
+    unix::run_loop(warden, cfg.poll(), &mut Console, |_, _| {})
 }
 
 pub fn install(_: &Path, _: bool) -> Result<(), String> {

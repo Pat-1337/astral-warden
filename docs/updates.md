@@ -10,17 +10,24 @@ Package-managed installs are left to their package manager:
 
 | Install | Updated by |
 |---|---|
-| Windows zip, or `install` to Program Files | itself |
+| Windows installer (`…-setup.exe`) | itself |
+| Windows portable zip | itself, in place |
 | Omarchy archive (`/usr/local/bin/astral-warden`) | itself |
 | Scoop | `scoop update astral-warden` |
 | AUR (`/usr/bin/astral-warden`) | pacman / your AUR helper |
 | other Linux archives | not updated; download the new release |
 
+Turn it on or off from the Windows tray (**Auto update**), or with `astral-warden auto-update <on|off>` (`sudo` on Linux).
+
+## Check now
+
+**Check for updates** in the Windows tray, or right-click the Omarchy bar widget (`astral-warden omarchy update`), checks right away, even with `auto_update = false`. A toast answers: up to date, update found (it then installs as below), or why the check failed. On Scoop it says to run `scoop update astral-warden`.
+
 ## What happens
 
 1. 30 s after the service starts, it checks the latest GitHub release once. There is no repeating check; the next one happens at the next start.
-2. If the release is newer, it downloads the archive for this build and `SHA256SUMS` over HTTPS (with `curl`, built into Windows 10+ and Omarchy).
-3. It verifies the archive's SHA-256, extracts the binary, and runs it with `--version` to confirm it starts and reports the expected version. Any failure leaves the running version untouched and is logged.
+2. If the release is newer, it downloads the file for this build (`…-setup.exe`, `…-portable.zip`, or `…-omarchy.tar.gz`) and `SHA256SUMS` over HTTPS (with `curl`, built into Windows 10+ and Omarchy).
+3. It verifies the SHA-256, extracts the binary if needed, and runs it with `--version` to confirm it starts and reports the expected version. Any failure leaves the running version untouched and is logged.
 4. It waits until every pin reads OK and no power cap is engaged. During a warning, recovery, sensor loss, or shutdown it never swaps.
 5. It moves the running binary aside as `astral-warden.old`, puts the new one in its place, and restarts into it: in place (`exec`) on Linux, a new process on Windows. Monitoring pauses for well under a second.
 6. The new version shows a notification: **Astral Warden updated · Now running X (was Y).** On Omarchy it also refreshes the bar widget files for each user who has it.

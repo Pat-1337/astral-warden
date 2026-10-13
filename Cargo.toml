@@ -9,6 +9,7 @@ publish = false
 
 [features]
 omarchy = []
+portable = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

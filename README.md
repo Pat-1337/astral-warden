@@ -14,7 +14,7 @@
 
 ## Install
 
-**Windows 11**: download the zip from [Releases](../../releases), run `astral-warden.exe`, then tick **Start at logon** in the tray menu. Or with Scoop:
+**Windows 11**: download `…-windows-x86_64-setup.exe` from [Releases](../../releases) and run it. It installs, starts at every logon, updates itself, and uninstalls from Settings → Apps. Prefer nothing installed? Use the `…-portable.zip`, or Scoop:
 
 ```
 scoop install https://github.com/Pat-1337/astral-warden/releases/latest/download/astral-warden.json

@@ -4,18 +4,42 @@ The same binary installs itself, writes a default config if none exists, and sta
 
 ## Windows 11
 
-1. Download `astral-warden-<version>-windows-x86_64.zip` from Releases and unzip it.
-2. Run `astral-warden.exe install`. A UAC prompt appears if the terminal is not elevated.
+Two builds, same program:
 
-What `install` does:
+| Build | File | For |
+|---|---|---|
+| Installer | `astral-warden-<version>-windows-x86_64-setup.exe` | most people: installs, starts at logon, updates itself, uninstalls from Settings |
+| Portable | `astral-warden-<version>-windows-x86_64-portable.zip` | running from a folder of your choice, nothing installed |
+
+### Installer
+
+Double-click `astral-warden-<version>-windows-x86_64-setup.exe` and accept the UAC prompt. It:
 
 | Step | Result |
 |---|---|
-| Copy binary | `C:\Program Files\AstralWarden\astral-warden.exe` |
+| Copy binary | `C:\Program Files\AstralWarden\astral-warden.exe`; the downloaded file can be deleted |
 | Default config | `C:\ProgramData\astral-warden\config.toml` |
 | Scheduled task | `AstralWarden`, runs at every logon with the highest privileges, no time limit, restarts on failure |
-| Multi-user | with fast user switching, a second session waits (`--wait`) and takes over when the first logs off |
-| Start | starts the task right away |
+| Apps list | **Astral Warden** in Settings → Apps → Installed apps |
+| Start | starts right away |
+
+With fast user switching, a second session waits (`--wait`) and takes over when the first logs off.
+
+Uninstall from **Settings → Apps → Installed apps → Astral Warden → Uninstall**, or run `astral-warden uninstall`. It stops the running instance and removes everything: the program folder, config, log, state files, the logon task, registry entries, and update downloads.
+
+### Portable
+
+Unzip `astral-warden-<version>-windows-x86_64-portable.zip` anywhere and run `astral-warden.exe`. Everything it writes stays next to it:
+
+| File | Holds |
+|---|---|
+| `astral-warden.toml` | config |
+| `astral-warden.log` | log |
+| `astral-warden.power-cap`, `astral-warden.last-shutdown` | power cap state, last protective shutdown |
+
+Tick **Start at logon** in the tray menu to start this copy at every logon (UAC prompt). `astral-warden uninstall` removes the logon task, registry entries, and the files above; then delete the folder. Scoop installs this build.
+
+### Tray
 
 The tray icon shows the state:
 
@@ -32,15 +56,13 @@ Hover over the icon for the hottest pin and the board power. Right-click it for:
 | Header | version and detected board, with the sensor source |
 | Readings | state, current and voltage for each pin, total current and power, balance, board power against its limit, power cap state, shutdown arming, memory use (working set and private), uptime |
 | Start at logon | checkbox that registers or removes the logon task, with a UAC prompt if not elevated; monitoring continues meanwhile |
+| Auto update | checkbox for `auto_update` in the config, with a UAC prompt if not elevated; greyed out for Scoop |
+| Check for updates | checks now; a toast says whether an update was found, and a found update installs on its own |
 | Actions | Open config, Open log, Exit |
-
-Running `astral-warden.exe` standalone and ticking **Start at logon** gives the same result as `install`, but doesn't restart the running instance.
 
 Optional fallback: if the direct sensor read fails, readings come from [HWiNFO](https://www.hwinfo.com/) when it is running with **Shared Memory Support** enabled. `status` shows which source is in use (`via NVAPI, HWiNFO as fallback` or `via HWiNFO`).
 
 Administrator rights are needed to change the power limit, and the logon task grants them. Run unelevated, it still monitors and can shut down, but it cannot cap power.
-
-Uninstall: `astral-warden.exe uninstall`. The config is kept.
 
 ## Linux
 
@@ -69,7 +91,7 @@ With any other init system, run `astral-warden run` as root at boot. The service
 
 Desktop notifications go through `notify-send` to every logged-in user's session bus. Critical events also go to `wall`.
 
-Uninstall: `sudo astral-warden uninstall`. The config is kept.
+Uninstall: `sudo astral-warden uninstall`. It removes the binary, service, config (`/etc/astral-warden`), state (`/var/lib/astral-warden`, `/run/astral-warden`), update leftovers, and the Omarchy bar widget.
 
 When it starts from a double-click, a toast confirms it is running and that the card's pins are readable. Starts at logon are silent.
 
@@ -91,7 +113,8 @@ Nothing is written to disk until the first warning, critical event, or error. Fr
 
 | OS | Log |
 |---|---|
-| Windows | `C:\ProgramData\astral-warden\astral-warden.log` (rotated at 1 MB) |
+| Windows installer | `C:\ProgramData\astral-warden\astral-warden.log` (rotated at 1 MB) |
+| Windows portable | `astral-warden.log` next to the exe (rotated at 1 MB) |
 | Linux | the service log: journald, `/var/log/astral-warden.log` on OpenRC, or runit's logger |
 
 The config is read once at start. Restart after editing it.

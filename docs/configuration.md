@@ -1,6 +1,6 @@
 # Configuration
 
-TOML. If the default path has no file, all defaults apply. A file named with `--config` must exist. An unknown key or invalid value refuses to start, so a typo can't silently disable protection.
+TOML, at `C:\ProgramData\astral-warden\config.toml` (Windows installer), `astral-warden.toml` next to the exe (Windows portable), or `/etc/astral-warden/config.toml` (Linux). If the default path has no file, all defaults apply. A file named with `--config` must exist. An unknown key or invalid value refuses to start, so a typo can't silently disable protection.
 
 ```toml
 poll_ms = 500

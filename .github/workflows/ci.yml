@@ -21,3 +21,5 @@ jobs:
       - run: cargo build --release
       - if: runner.os == 'Linux'
         run: cargo clippy --release --features omarchy -- -D warnings
+      - if: runner.os == 'Windows'
+        run: cargo clippy --release --features portable -- -D warnings

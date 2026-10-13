@@ -37,11 +37,11 @@ extern "C" fn on_signal(_: libc::c_int) {
     STOP.store(true, Ordering::Relaxed);
 }
 
-pub fn run_loop(
+pub fn run_loop<H: Host>(
     mut warden: Warden,
     poll: Duration,
-    host: &mut impl Host,
-    mut on_tick: impl FnMut(&Warden),
+    host: &mut H,
+    mut on_tick: impl FnMut(&Warden, &mut H),
 ) -> Result<(), String> {
     for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
         unsafe { libc::signal(signal, on_signal as *const () as libc::sighandler_t) };
@@ -50,7 +50,7 @@ pub fn run_loop(
     let mut next = Instant::now();
     while !STOP.load(Ordering::Relaxed) {
         warden.tick(host);
-        on_tick(&warden);
+        on_tick(&warden, host);
 
         next += poll;
         let now = Instant::now();
