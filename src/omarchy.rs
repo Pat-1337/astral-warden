@@ -1,9 +1,4 @@
-// Omarchy addon, built only with `--features omarchy`.
-//
-// The root service publishes a small JSON status to /run, and an Omarchy
-// shell bar widget (omarchy/BarWidget.qml) reads it as the desktop user.
-// Layout of the file, which `watch` relies on:
-//
+// Status file layout; `watch` reads its fields by position:
 //   {"ts":<unix secs>,"level":"ok|warn|crit","name":"..","text":"..","rows":[["..",".."],..]}
 
 use crate::guard::Phase;
@@ -19,6 +14,7 @@ const STATUS: &str = "/run/astral-warden/status.json";
 const STAGED: &str = "/run/astral-warden/status.json.new";
 const PUBLISH_EVERY: Duration = Duration::from_secs(1);
 const STALE_SECS: u64 = 5;
+const CLEAR_SCREEN: &str = "\x1b[H\x1b[2J";
 
 const PLUGIN_ID: &str = "pat-1337.astral-warden";
 const MANIFEST: &str = include_str!("../omarchy/manifest.json");
@@ -48,8 +44,6 @@ impl Action {
         }
     }
 }
-
-// Service side: publish the status for the bar widget.
 
 pub struct Publisher {
     at: Option<Instant>,
@@ -138,8 +132,6 @@ fn quote(out: &mut String, text: &str) {
     out.push('"');
 }
 
-// Desktop side: `astral-warden omarchy watch`, no root needed.
-
 fn strings(json: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut chars = json.chars();
@@ -176,8 +168,7 @@ fn watch() -> Result<(), String> {
         let json = fs::read_to_string(STATUS).unwrap_or_default();
         let fresh = ts(&json).is_some_and(|t| now().saturating_sub(t) < STALE_SECS);
 
-        // Home the cursor and clear, so the frame redraws in place.
-        let mut frame = String::from("\x1b[H\x1b[2J");
+        let mut frame = String::from(CLEAR_SCREEN);
         match fresh {
             true => {
                 let fields = strings(&json);
@@ -195,8 +186,6 @@ fn watch() -> Result<(), String> {
         std::thread::sleep(PUBLISH_EVERY);
     }
 }
-
-// Desktop side: install the bar widget as the desktop user.
 
 fn plugin_dir() -> Result<PathBuf, String> {
     let config = std::env::var_os("XDG_CONFIG_HOME")
@@ -249,9 +238,6 @@ fn uninstall() -> Result<(), String> {
         }
     }
 }
-
-// Root side: `sudo astral-warden install|uninstall` also handles the widget
-// for the user who ran sudo.
 
 pub fn for_sudo_user(bin: &str, action: &str) {
     let (Ok(user), Ok(uid)) = (std::env::var("SUDO_USER"), std::env::var("SUDO_UID")) else {

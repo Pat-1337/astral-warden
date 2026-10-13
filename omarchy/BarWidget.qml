@@ -3,10 +3,6 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Reads the status the root service publishes and shows the hottest pin.
-// The service rewrites the file at most once a second, so a 1 s reload of a
-// few hundred bytes on tmpfs is the whole cost of this widget.
-
 BarWidget {
   id: root
   moduleName: "pat-1337.astral-warden"

@@ -8,7 +8,6 @@ license = "MIT"
 publish = false
 
 [features]
-# Omarchy bar widget and status file, shipped only in the -omarchy release
 omarchy = []
 
 [dependencies]
