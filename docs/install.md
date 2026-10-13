@@ -62,14 +62,17 @@ Hover over the icon for the hottest pin and the board power. Right-click it for:
 
 Optional fallback: if the direct sensor read fails, readings come from [HWiNFO](https://www.hwinfo.com/) when it is running with **Shared Memory Support** enabled. `status` shows which source is in use (`via NVAPI, HWiNFO as fallback` or `via HWiNFO`).
 
+With a WireView Pro II, close Thermal Grizzly's own WireView app first. Only one program can hold its COM port.
+
 Administrator rights are needed to change the power limit, and the logon task grants them. Run unelevated, it still monitors and can shut down, but it cannot cap power.
 
 ## Linux
 
 Requirements:
-- the NVIDIA driver (proprietary or open kernel modules), which exposes the `NVIDIA i2c adapter` buses
+- the NVIDIA driver (proprietary or open kernel modules), which exposes the `NVIDIA i2c adapter` buses. A WireView Pro II works without it.
 - the `i2c-dev` module, which `install` loads and registers in `/etc/modules-load.d/`
-- root, for `/dev/i2c-*`, NVML power limits, and poweroff
+- for a WireView Pro II, a udev rule that keeps ModemManager off its serial port, which `install` writes to `/etc/udev/rules.d/`
+- root, for `/dev/i2c-*`, `/dev/ttyACM*`, NVML power limits, and poweroff
 
 ```sh
 tar xzf astral-warden-<version>-linux-x86_64-<init>.tar.gz
@@ -91,7 +94,7 @@ With any other init system, run `astral-warden run` as root at boot. The service
 
 Desktop notifications go through `notify-send` to every logged-in user's session bus. Critical events also go to `wall`.
 
-Uninstall: `sudo astral-warden uninstall`. It removes the binary, service, config (`/etc/astral-warden`), state (`/var/lib/astral-warden`, `/run/astral-warden`), update leftovers, and the Omarchy bar widget.
+Uninstall: `sudo astral-warden uninstall`. It removes the binary, service, module and udev files, config (`/etc/astral-warden`), state (`/var/lib/astral-warden`, `/run/astral-warden`), update leftovers, and the Omarchy bar widget.
 
 When it starts from a double-click, a toast confirms it is running and that the card's pins are readable. Starts at logon are silent.
 

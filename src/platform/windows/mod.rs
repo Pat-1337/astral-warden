@@ -3,13 +3,14 @@ mod install;
 mod nvapi;
 mod registry;
 mod tray;
+mod wireview;
 
 pub use install::{adopt, install, uninstall};
 
 use crate::config::{self, Config};
 use crate::display;
 use crate::guard::Phase;
-use crate::hardware::{Device, It8915, no_device};
+use crate::hardware::{Device, Gpu, It8915, inline_device, no_device};
 use crate::log;
 use crate::sensor::{Reading, Sensor};
 use crate::warden::{Host, Severity, Warden};
@@ -168,37 +169,56 @@ impl Sensor for Fallback {
     }
 }
 
-pub fn open_device() -> Result<Device, String> {
-    let api = NvApi::load()?;
+pub fn open_device(cfg: &Config) -> Result<Device, String> {
+    let api = NvApi::load();
     let mut failures = Vec::new();
+    let mut gpus = Vec::new();
 
-    for (gpu, pci) in api.gpus() {
-        let Some(model) = pci.model() else {
-            failures.push(format!("{pci} is not a supported board"));
-            continue;
-        };
+    match &api {
+        Err(e) => failures.push(e.clone()),
+        Ok(api) => {
+            for (gpu, pci) in api.gpus() {
+                gpus.push(Gpu { pci, bus: api.bus(gpu) });
+                if cfg.wireview_port.is_some() {
+                    continue;
+                }
 
-        let direct = It8915::probe(NvI2c { api: api.clone(), gpu })
-            .inspect_err(|e| log!("direct sensor read failed ({e}), falling back to HWiNFO"))
-            .ok();
-        let source = match direct {
-            Some(_) => "NVAPI, HWiNFO as fallback",
-            None => "HWiNFO",
-        };
+                let Some(model) = pci.model() else {
+                    failures.push(format!("{pci} is not a supported board"));
+                    continue;
+                };
 
-        return Ok(Device {
-            name: model,
-            detail: format!("[{pci}] via {source}"),
-            pci: Some(pci),
-            bus: api.bus(gpu),
-            sensor: Box::new(Fallback {
-                direct,
-                hwinfo: HwInfo::new(),
-            }),
-        });
+                let direct = It8915::probe(NvI2c { api: api.clone(), gpu })
+                    .inspect_err(|e| log!("direct sensor read failed ({e}), falling back to HWiNFO"))
+                    .ok();
+                let source = match direct {
+                    Some(_) => "NVAPI, HWiNFO as fallback",
+                    None => "HWiNFO",
+                };
+
+                return Ok(Device {
+                    name: model,
+                    detail: format!("[{pci}] via {source}"),
+                    pci: Some(pci),
+                    bus: api.bus(gpu),
+                    sensor: Box::new(Fallback {
+                        direct,
+                        hwinfo: HwInfo::new(),
+                    }),
+                });
+            }
+        }
     }
 
-    Err(no_device(&failures))
+    let port = cfg.wireview_port.as_deref().map(|p| p.to_string_lossy());
+    match wireview::open(port.as_deref()) {
+        Some(Ok((sensor, model, via))) => Ok(inline_device(sensor, model, via, &gpus)),
+        Some(Err(e)) => {
+            failures.push(format!("WireView Pro II: {e}"));
+            Err(no_device(&failures))
+        }
+        None => Err(no_device(&failures)),
+    }
 }
 
 pub struct Lock(HANDLE);

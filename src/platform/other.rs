@@ -22,7 +22,7 @@ impl Host for Console {
     }
 }
 
-pub fn open_device() -> Result<Device, String> {
+pub fn open_device(_: &Config) -> Result<Device, String> {
     Err("hardware access needs Windows or Linux; set `simulate` in the config to dry-run".into())
 }
 

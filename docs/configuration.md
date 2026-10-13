@@ -43,6 +43,7 @@ restore_after_secs = 120
 | `power_cap.enabled` | true | Lower the GPU power limit on a warning or sensor loss. |
 | `power_cap.percent` | 80 | Cap as a percentage of the board's default limit (50–100), clamped to what the board allows. |
 | `power_cap.restore_after_secs` | 120 | Clean time needed before the previous limit is restored. |
+| `wireview_port` | unset | The serial port of a WireView Pro II, such as `/dev/ttyACM0` or `COM5`. Uses the WireView even when a supported card is present. Unset finds it on its own. |
 | `simulate` | unset | A path to a text file of 6 amp values. It replaces the hardware sensor, for dry runs. |
 
 Restart the service, or Exit and relaunch from the tray, after editing.

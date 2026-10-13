@@ -19,7 +19,7 @@ The repos below were surveyed on 2026-10-12 to pin down the protocol. Each value
 | [rust-nvml/nvml-wrapper](https://github.com/rust-nvml/nvml-wrapper) | Rust | NVML bindings: power-limit API reference |
 | [arcnmx/nvapi-rs](https://github.com/arcnmx/nvapi-rs) | Rust | NVAPI bindings, including private `I2CReadEx` |
 | [falahati/NvAPIWrapper](https://github.com/falahati/NvAPIWrapper) | C# | .NET NVAPI wrapper |
-| [emaspa/wireview-hwmon](https://github.com/emaspa/wireview-hwmon) | C | Linux hwmon for the WireView Pro II in-line meter |
+| [emaspa/wireview-hwmon](https://github.com/emaspa/wireview-hwmon) | C | Linux hwmon driver and daemon for the WireView Pro II; serial protocol and frame layout |
 | [McNugget6750/12VHPWR-Saver](https://github.com/McNugget6750/12VHPWR-Saver) | Python | Connector temperature monitor (external sensor) |
 | [OpenRGB](https://gitlab.com/CalcProgrammer1/OpenRGB) (GitLab) | C++ | `pci_ids.h`: the board ID list |
 

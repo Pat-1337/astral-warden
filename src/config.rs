@@ -32,6 +32,7 @@ pub struct Config {
     pub alarm: bool,
     pub auto_update: bool,
     pub power_cap: PowerCap,
+    pub wireview_port: Option<PathBuf>,
     pub simulate: Option<PathBuf>,
 }
 
@@ -60,6 +61,7 @@ impl Default for Config {
             alarm: true,
             auto_update: true,
             power_cap: PowerCap::default(),
+            wireview_port: None,
             simulate: None,
         }
     }

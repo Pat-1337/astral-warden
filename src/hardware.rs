@@ -85,8 +85,8 @@ impl std::fmt::Display for PciId {
 
 pub fn no_device(failures: &[String]) -> String {
     match failures {
-        [] => "no supported ASUS ROG Astral GPU found".into(),
-        _ => format!("no usable ASUS ROG Astral GPU: {}", failures.join("; ")),
+        [] => "no ASUS ROG Astral or Matrix GPU and no WireView Pro II found".into(),
+        _ => format!("no usable sensor: {}", failures.join("; ")),
     }
 }
 
@@ -155,4 +155,28 @@ pub struct Device {
     pub pci: Option<PciId>,
     pub bus: Option<u32>,
     pub sensor: Box<dyn Sensor>,
+}
+
+#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
+#[derive(Debug, Clone, Copy)]
+pub struct Gpu {
+    pub pci: PciId,
+    pub bus: Option<u32>,
+}
+
+#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
+pub fn inline_device(sensor: Box<dyn Sensor>, model: &str, via: String, gpus: &[Gpu]) -> Device {
+    let (gpu, cap) = match gpus {
+        [gpu] => (Some(gpu), format!("power cap on [{}]", gpu.pci)),
+        [] => (None, "no NVIDIA GPU to cap".into()),
+        _ => (None, "power cap off with several NVIDIA GPUs".into()),
+    };
+
+    Device {
+        name: model.into(),
+        detail: format!("{via}, {cap}"),
+        pci: gpu.map(|g| g.pci),
+        bus: gpu.and_then(|g| g.bus),
+        sensor,
+    }
 }

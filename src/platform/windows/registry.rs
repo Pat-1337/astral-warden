@@ -2,12 +2,14 @@ use super::wide;
 use std::path::Path;
 use windows_sys::Win32::Foundation::ERROR_SUCCESS;
 use windows_sys::Win32::System::Registry::{
-    HKEY, HKEY_LOCAL_MACHINE, KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_DWORD, RegCloseKey,
-    RegCreateKeyExW, RegDeleteTreeW, RegGetValueW, RegSetValueExW,
+    HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_DWORD,
+    RRF_RT_REG_SZ, RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegEnumKeyExW, RegGetValueW, RegOpenKeyExW,
+    RegSetValueExW,
 };
 
 const APP: &str = r"SOFTWARE\AstralWarden";
 const UNINSTALL: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AstralWarden";
+const USB: &str = r"SYSTEM\CurrentControlSet\Enum\USB";
 
 enum Value<'a> {
     Text(&'a str),
@@ -41,6 +43,36 @@ impl Key {
         }
     }
 
+    fn open(path: &str) -> Option<Self> {
+        let mut key = std::ptr::null_mut();
+        let path_w = wide(path);
+
+        let status = unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, path_w.as_ptr(), 0, KEY_READ, &mut key) };
+        (status == ERROR_SUCCESS).then_some(Self(key))
+    }
+
+    fn subkeys(&self) -> impl Iterator<Item = String> + '_ {
+        (0..).map_while(|index| {
+            let mut name = [0u16; 256];
+            let mut len = name.len() as u32;
+
+            let status = unsafe {
+                RegEnumKeyExW(
+                    self.0,
+                    index,
+                    name.as_mut_ptr(),
+                    &mut len,
+                    std::ptr::null(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                )
+            };
+
+            (status == ERROR_SUCCESS).then(|| String::from_utf16_lossy(&name[..len as usize]))
+        })
+    }
+
     fn set(&self, name: &str, value: Value) -> Result<(), String> {
         let name_w = wide(name);
         let (kind, bytes) = match value {
@@ -64,6 +96,38 @@ impl Drop for Key {
 fn delete(path: &str) {
     let path_w = wide(path);
     unsafe { RegDeleteTreeW(HKEY_LOCAL_MACHINE, path_w.as_ptr()) };
+}
+
+fn text(path: &str, name: &str) -> Option<String> {
+    let (path, name) = (wide(path), wide(name));
+    let mut value = [0u16; 64];
+    let mut size = size_of_val(&value) as u32;
+
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            path.as_ptr(),
+            name.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            value.as_mut_ptr().cast(),
+            &mut size,
+        )
+    };
+
+    let len = (size as usize / 2).saturating_sub(1);
+    (status == ERROR_SUCCESS).then(|| String::from_utf16_lossy(&value[..len]))
+}
+
+pub fn usb_ports(device: &str) -> Vec<String> {
+    let path = format!(r"{USB}\{device}");
+    let Some(key) = Key::open(&path) else {
+        return Vec::new();
+    };
+
+    key.subkeys()
+        .filter_map(|instance| text(&format!(r"{path}\{instance}\Device Parameters"), "PortName"))
+        .collect()
 }
 
 pub fn autostart() -> bool {

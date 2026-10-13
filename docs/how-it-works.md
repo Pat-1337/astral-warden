@@ -2,7 +2,7 @@
 
 ## Sensor
 
-Astral boards have an **ITE IT8915** ("Power Detector+") on the GPU's own I2C bus. It measures the voltage and current of each of the six 12 V pins.
+ASUS ROG Astral and Matrix boards have an **ITE IT8915** ("Power Detector+") on the GPU's own I2C bus. It measures the voltage and current of each of the six 12 V pins.
 
 | | |
 |---|---|
@@ -37,9 +37,25 @@ HWiNFO needs **Settings → Shared Memory Support** turned on. In the free versi
 
 There is one more sanity check: if the pins sum to under 1 A while NVML reports more than 150 W of board power, the sample counts as a failed read. That happens on BTF boards powered through the motherboard slot, where current bypasses the sensor.
 
+### WireView Pro II
+
+The WireView is a USB serial device at 115200 baud. Every sample sends one command byte and reads a fixed 100-byte little-endian frame.
+
+| | |
+|---|---|
+| Identify | command `0x01` returns vendor `0xEF`, product `5` or `6`, firmware version |
+| Sample | command `0x04` returns the frame |
+| Pins | 6 entries of 12 bytes from byte 12: `i16` millivolts, 2 padding bytes, `u32` milliamps, `u32` milliwatts |
+
+The protocol has no framing or checksum, so a frame is rejected when its padding is not zero, its fan duty is over 100, or a pin is outside 6 to 16 V or over 30 A. A rejected frame clears the input buffer and is read again once. A failed port is closed and found again on the next sample, so unplugging and replugging the WireView recovers on its own.
+
+On Linux, when the wireview-hwmon driver is loaded, the pins come from its `in0_input` to `in5_input` and `curr1_input` to `curr6_input` instead, because wireviewd owns the port. The driver stops answering 5 s after wireviewd stops, which counts as a failed read.
+
 ## Detection
 
 Before any I2C traffic, the GPU's PCI vendor, device, and subsystem IDs must match the [supported list](hardware.md). Address `0x2B` on other boards may be a different chip.
+
+Before a serial port is used for samples, it has to answer the identify command as a WireView Pro II. Other STM32 boards share its USB ID.
 
 ## Decision
 
@@ -87,8 +103,8 @@ When there are several GPUs, NVML is matched by PCI IDs and bus number.
 ## Footprint
 
 - One thread. Windows uses a message-loop timer; Linux uses a sleep loop.
-- Per tick: one I2C transaction and the state machine. The tray tooltip is refreshed at most every 5 s, and immediately when the state colour changes. The NVML board-power check (only used when the pins read near 0 A) runs at most every 5 s.
+- Per tick: one sensor read and the state machine. The tray tooltip is refreshed at most every 5 s, and immediately when the state colour changes. The NVML board-power check (only used when the pins read near 0 A) runs at most every 5 s.
 - No disk writes during normal operation. See [Log](install.md#log).
-- Each sample is one 24-byte I2C transaction.
-- The binary is about 0.7 MB, with no runtime dependencies beyond the NVIDIA driver (and glibc on Linux).
+- Each sample is one 24-byte I2C transaction, or one 100-byte serial read for a WireView.
+- The binary is about 0.7 MB, with no runtime dependencies beyond the NVIDIA driver (and glibc on Linux). A WireView needs no driver at all.
 - Only one instance runs: a `Global\AstralWarden` mutex on Windows, an `flock` on `/run/lock/astral-warden.lock` on Linux.

@@ -50,7 +50,7 @@ jobs:
             name="astral-warden-${GITHUB_REF_NAME}-linux-x86_64-${flavor}"
             mkdir -p "$name/init"
             cp "$bin" README.md LICENSE "$name/"
-            cp init/modules-load.conf "$name/init/"
+            cp init/modules-load.conf init/udev.rules "$name/init/"
             case $flavor in
               systemd) cp init/astral-warden.service "$name/init/" ;;
               openrc)  cp init/astral-warden.openrc "$name/init/" ;;
@@ -77,7 +77,7 @@ jobs:
           name="astral-warden-${GITHUB_REF_NAME}-linux-x86_64-omarchy"
           mkdir -p "$name/init" "$name/omarchy"
           cp target/x86_64-unknown-linux-gnu/release/astral-warden README.md LICENSE "$name/"
-          cp init/modules-load.conf init/astral-warden.service "$name/init/"
+          cp init/modules-load.conf init/udev.rules init/astral-warden.service "$name/init/"
           cp omarchy/manifest.json omarchy/BarWidget.qml "$name/omarchy/"
           tar czf "$name.tar.gz" "$name"
       - uses: actions/upload-artifact@v7

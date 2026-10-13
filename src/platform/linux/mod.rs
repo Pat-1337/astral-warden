@@ -1,7 +1,9 @@
-use super::unix::{self, detach};
+mod wireview;
+
 use crate::config::{self, Config};
 use crate::display;
-use crate::hardware::{Bus, Device, IT8915_ADDR, It8915, NVIDIA, PciId, no_device};
+use crate::hardware::{Bus, Device, Gpu, IT8915_ADDR, It8915, NVIDIA, PciId, inline_device, no_device};
+use crate::platform::unix::{self, detach};
 use crate::warden::{Host, Severity, Warden};
 use std::fs::{self, File, OpenOptions};
 use std::io::ErrorKind;
@@ -22,6 +24,7 @@ const BIN: &str = "/usr/local/bin/astral-warden";
 const RUNIT_SV: &str = "/etc/sv/astral-warden";
 const RUNSVDIRS: &[&str] = &["/var/service", "/etc/runit/runsvdir/default", "/run/runit/service"];
 const MODULES: &str = "/etc/modules-load.d/astral-warden.conf";
+const UDEV: &str = "/etc/udev/rules.d/70-astral-warden.rules";
 
 #[repr(C)]
 struct SmbusIoctl {
@@ -106,31 +109,42 @@ fn sensor_adapter(gpu: &Path) -> Result<u32, String> {
         .ok_or_else(|| "NVIDIA i2c adapter 1 not found (needs the NVIDIA driver)".into())
 }
 
-pub fn open_device() -> Result<Device, String> {
+fn is_display(dir: &Path) -> bool {
+    fs::read_to_string(dir.join("class")).is_ok_and(|class| class.starts_with("0x03"))
+}
+
+pub fn open_device(cfg: &Config) -> Result<Device, String> {
     let mut failures = Vec::new();
+    let mut gpus = Vec::new();
 
     for dir in fs::read_dir(PCI_DEVICES)
         .map_err(|e| e.to_string())?
         .flatten()
         .map(|e| e.path())
     {
-        let Some(pci) = pci_id(&dir).filter(|id| id.vendor == NVIDIA) else {
+        let Some(pci) = pci_id(&dir).filter(|id| id.vendor == NVIDIA && is_display(&dir)) else {
             continue;
         };
+
+        let bdf = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let bus = bdf.split(':').nth(1).and_then(|b| u32::from_str_radix(b, 16).ok());
+        gpus.push(Gpu { pci, bus });
+        if cfg.wireview_port.is_some() {
+            continue;
+        }
 
         let Some(model) = pci.model() else {
             failures.push(format!("{pci} is not a supported board"));
             continue;
         };
 
-        let bdf = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
         match sensor_adapter(&dir).and_then(|n| Ok((n, It8915::probe(I2cDev::open(n)?)?))) {
             Ok((n, sensor)) => {
                 return Ok(Device {
                     name: model,
                     detail: format!("[{pci}] at {bdf} via /dev/i2c-{n}"),
                     pci: Some(pci),
-                    bus: bdf.split(':').nth(1).and_then(|b| u32::from_str_radix(b, 16).ok()),
+                    bus,
                     sensor: Box::new(sensor),
                 });
             }
@@ -138,7 +152,14 @@ pub fn open_device() -> Result<Device, String> {
         }
     }
 
-    Err(no_device(&failures))
+    match wireview::open(cfg.wireview_port.as_deref()) {
+        Some(Ok((sensor, model, via))) => Ok(inline_device(sensor, model, via, &gpus)),
+        Some(Err(e)) => {
+            failures.push(format!("WireView Pro II: {e}"));
+            Err(no_device(&failures))
+        }
+        None => Err(no_device(&failures)),
+    }
 }
 
 pub fn single_instance() -> Result<Lock, String> {
@@ -279,15 +300,15 @@ impl Init {
         match self {
             Self::Systemd => (
                 "/etc/systemd/system/astral-warden.service",
-                include_str!("../../init/astral-warden.service"),
+                include_str!("../../../init/astral-warden.service"),
             ),
             Self::OpenRc => (
                 "/etc/init.d/astral-warden",
-                include_str!("../../init/astral-warden.openrc"),
+                include_str!("../../../init/astral-warden.openrc"),
             ),
             Self::Runit => (
                 "/etc/sv/astral-warden/run",
-                include_str!("../../init/astral-warden.runit"),
+                include_str!("../../../init/astral-warden.runit"),
             ),
         }
     }
@@ -382,8 +403,11 @@ pub fn install(config: &Path, _: bool) -> Result<(), String> {
         println!("wrote {}", config.display());
     }
 
-    write(MODULES, include_str!("../../init/modules-load.conf"), 0o644)?;
+    write(MODULES, include_str!("../../../init/modules-load.conf"), 0o644)?;
     let _ = spawn_quiet("modprobe", &["i2c-dev"]);
+
+    write(UDEV, include_str!("../../../init/udev.rules"), 0o644)?;
+    let _ = spawn_quiet("udevadm", &["control", "--reload"]);
 
     let (path, template) = init.service();
     let service = template
@@ -416,6 +440,8 @@ pub fn uninstall(_: bool) -> Result<(), String> {
     init.disable();
     remove(init.service().0)?;
     remove(MODULES)?;
+    remove(UDEV)?;
+    let _ = spawn_quiet("udevadm", &["control", "--reload"]);
 
     for suffix in ["", ".old", ".new", ".failed", ".skip"] {
         remove(&format!("{BIN}{suffix}"))?;

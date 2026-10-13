@@ -17,6 +17,8 @@ mod sha256;
 #[cfg(updater)]
 mod update;
 mod warden;
+#[cfg(any(target_os = "linux", windows))]
+mod wireview;
 
 use config::Config;
 use hardware::Device;
@@ -129,7 +131,7 @@ fn open(cfg: &Config) -> Result<Device, String> {
             bus: None,
             sensor: Box::new(Simulated(path.clone())),
         },
-        None => platform::open_device()?,
+        None => platform::open_device(cfg)?,
     };
 
     if display::hex() {

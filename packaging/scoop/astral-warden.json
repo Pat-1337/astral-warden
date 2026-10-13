@@ -1,6 +1,6 @@
 {
     "version": "@VERSION@",
-    "description": "Per-pin 12V-2x6 watchdog for ASUS ROG Astral RTX 5090/5080",
+    "description": "Per-pin 12V-2x6 watchdog for ASUS ROG Astral and Matrix GPUs and the WireView Pro II",
     "homepage": "https://github.com/Pat-1337/astral-warden",
     "license": "MIT",
     "architecture": {
