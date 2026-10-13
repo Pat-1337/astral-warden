@@ -1,6 +1,6 @@
 [package]
 name = "gpu-warden"
-version = "0.9.2"
+version = "0.9.3"
 edition = "2024"
 rust-version = "1.85"
 description = "Per-pin 12V-2x6 watchdog for ASUS ROG Astral and Matrix GPUs and the WireView Pro II"
