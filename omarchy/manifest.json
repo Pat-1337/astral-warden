@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "pat-1337.astral-warden",
-  "name": "Astral Warden",
+  "id": "pat-1337.gpu-warden",
+  "name": "GPU Warden",
   "version": "@VERSION@",
   "author": "Pat-1337",
   "license": "MIT",
-  "description": "Per-pin 12V-2x6 readings from the astral-warden service",
+  "description": "Per-pin 12V-2x6 readings from the gpu-warden service",
   "kinds": [
     "bar-widget"
   ],
@@ -13,7 +13,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Astral Warden",
+    "displayName": "GPU Warden",
     "description": "Hottest 12V-2x6 pin, with every pin in the tooltip",
     "category": "System",
     "allowMultiple": false,

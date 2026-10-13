@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-const REPO: &str = "https://github.com/Pat-1337/astral-warden";
+const REPO: &str = "https://github.com/Pat-1337/gpu-warden";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const NETWORK_WAIT: Duration = Duration::from_secs(30);
 const CURL: &[&str] = &["-fsSL", "--proto", "=https", "--retry", "3", "--retry-connrefused"];
@@ -31,20 +31,20 @@ const ASSET: Asset = Asset {
 const ASSET: Asset = Asset {
     stem: "windows-x86_64-portable",
     ext: "zip",
-    member: Some("astral-warden.exe"),
+    member: Some("gpu-warden.exe"),
 };
 
 #[cfg(not(windows))]
 const ASSET: Asset = Asset {
     stem: "linux-x86_64-omarchy",
     ext: "tar.gz",
-    member: Some("astral-warden"),
+    member: Some("gpu-warden"),
 };
 
 #[cfg(windows)]
 const NULL: &str = "NUL";
 #[cfg(windows)]
-const MANAGED: &str = "Installed with Scoop. Update with: scoop update astral-warden";
+const MANAGED: &str = "Installed with Scoop. Update with: scoop update gpu-warden";
 
 #[cfg(not(windows))]
 const NULL: &str = "/dev/null";
@@ -193,7 +193,7 @@ fn managed(exe: &Path) -> bool {
     return exe.components().any(|c| c.as_os_str().eq_ignore_ascii_case("scoop"));
 
     #[cfg(not(windows))]
-    return exe != Path::new("/usr/local/bin/astral-warden");
+    return exe != Path::new("/usr/local/bin/gpu-warden");
 }
 
 fn sibling(exe: &Path, tag: &str) -> PathBuf {
@@ -204,15 +204,15 @@ fn sibling(exe: &Path, tag: &str) -> PathBuf {
 }
 
 fn skip_file(exe: &Path) -> PathBuf {
-    exe.with_file_name("astral-warden.skip")
+    exe.with_extension("skip")
 }
 
 fn work_dir() -> PathBuf {
     #[cfg(windows)]
-    return std::env::temp_dir().join("astral-warden-update");
+    return std::env::temp_dir().join("gpu-warden-update");
 
     #[cfg(not(windows))]
-    return PathBuf::from("/var/lib/astral-warden/update");
+    return PathBuf::from("/var/lib/gpu-warden/update");
 }
 
 fn tool(program: &str, args: &[&str]) -> Result<String, String> {
@@ -274,7 +274,7 @@ fn stage(tag: &str) -> Result<PathBuf, String> {
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
 
-    let name = format!("astral-warden-{tag}-{}", ASSET.stem);
+    let name = format!("gpu-warden-{tag}-{}", ASSET.stem);
     let file = format!("{name}.{}", ASSET.ext);
     let (download_path, sums) = (dir.join(&file), dir.join("SHA256SUMS"));
     download(tag, &file, &download_path)?;
@@ -307,7 +307,7 @@ fn stage(tag: &str) -> Result<PathBuf, String> {
     }
 
     let version = tool(&binary.to_string_lossy(), &["--version"])?;
-    if version != format!("astral-warden {}", tag.trim_start_matches('v')) {
+    if version != format!("gpu-warden {}", tag.trim_start_matches('v')) {
         return Err(format!("staged binary reports {version:?}"));
     }
 

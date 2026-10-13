@@ -25,7 +25,7 @@ The repos below were surveyed on 2026-10-12 to pin down the protocol. Each value
 
 The default thresholds follow 12vhpwr-guard and astral-hwmon's guard design: the 9.5 A contact rating, healthy imbalance under ~16%, and slow-cook failures at 11–15 A.
 
-What astral-warden adds:
+What gpu-warden adds:
 - a single self-contained binary for Windows and Linux
 - systemd, OpenRC, and runit support
 - coexistence with MSI Afterburner (it saves and restores the user's limit and re-applies the cap if overridden)

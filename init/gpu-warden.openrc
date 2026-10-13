@@ -1,12 +1,12 @@
 #!/sbin/openrc-run
 
-description="Astral Warden 12V-2x6 watchdog"
+description="GPU Warden 12V-2x6 watchdog"
 command="@BIN@"
 command_args="run --config @CONFIG@"
 supervisor="supervise-daemon"
 respawn_delay=5
-output_log="/var/log/astral-warden.log"
-error_log="/var/log/astral-warden.log"
+output_log="/var/log/gpu-warden.log"
+error_log="/var/log/gpu-warden.log"
 
 depend() {
     need localmount

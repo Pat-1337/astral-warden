@@ -9,15 +9,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const DIR: &str = "/run/astral-warden";
-const STATUS: &str = "/run/astral-warden/status.json";
-const STAGED: &str = "/run/astral-warden/status.json.new";
-const REQUEST: &str = "/run/astral-warden/check-update";
+const DIR: &str = "/run/gpu-warden";
+const STATUS: &str = "/run/gpu-warden/status.json";
+const STAGED: &str = "/run/gpu-warden/status.json.new";
+const REQUEST: &str = "/run/gpu-warden/check-update";
 const PUBLISH_EVERY: Duration = Duration::from_secs(1);
 const STALE_SECS: u64 = 5;
 const CLEAR_SCREEN: &str = "\x1b[H\x1b[2J";
 
-const PLUGIN_ID: &str = "pat-1337.astral-warden";
+const PLUGIN_ID: &str = "pat-1337.gpu-warden";
+const LEGACY_PLUGIN_ID: &str = "pat-1337.astral-warden";
 const MANIFEST: &str = include_str!("../omarchy/manifest.json");
 const WIDGET: &str = include_str!("../omarchy/BarWidget.qml");
 
@@ -27,6 +28,7 @@ pub enum Action {
     Refresh,
     Update,
     Watch,
+    Migrate,
 }
 
 impl Action {
@@ -37,7 +39,8 @@ impl Action {
             Some("refresh") => Ok(Self::Refresh),
             Some("update") => Ok(Self::Update),
             Some("watch") => Ok(Self::Watch),
-            _ => Err("usage: astral-warden omarchy [install|uninstall|update|watch]".into()),
+            Some("migrate") => Ok(Self::Migrate),
+            _ => Err("usage: gpu-warden omarchy [install|uninstall|update|watch]".into()),
         }
     }
 
@@ -48,6 +51,7 @@ impl Action {
             Self::Refresh => refresh(),
             Self::Update => request_update(),
             Self::Watch => watch(),
+            Self::Migrate => migrate(),
         }
     }
 }
@@ -197,7 +201,7 @@ fn request_update() -> Result<(), String> {
         .and_then(|mut file| file.write_all(now().to_string().as_bytes()))
         .map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => {
-                "the service is not running; start it with `sudo astral-warden install`".into()
+                "the service is not running; start it with `sudo gpu-warden install`".into()
             }
             _ => format!("{REQUEST}: {e}"),
         })?;
@@ -220,9 +224,7 @@ fn watch() -> Result<(), String> {
                     let _ = writeln!(frame, "{:<10} {}", row[0], row[1]);
                 }
             }
-            false => {
-                frame.push_str("astral-warden service is not running\nstart it with: sudo astral-warden install\n")
-            }
+            false => frame.push_str("gpu-warden service is not running\nstart it with: sudo gpu-warden install\n"),
         }
 
         print!("{frame}");
@@ -242,7 +244,7 @@ fn plugin_dir() -> Result<PathBuf, String> {
 
 fn require_user() -> Result<(), String> {
     match unsafe { libc::geteuid() } {
-        0 => Err("run `astral-warden omarchy ...` as your desktop user, without sudo".into()),
+        0 => Err("run `gpu-warden omarchy ...` as your desktop user, without sudo".into()),
         _ => Ok(()),
     }
 }
@@ -258,7 +260,7 @@ fn install() -> Result<(), String> {
 
     println!("added {PLUGIN_ID} to the bar");
     if !Path::new(STATUS).exists() {
-        println!("no readings yet; start the service with `sudo astral-warden install`");
+        println!("no readings yet; start the service with `sudo gpu-warden install`");
     }
 
     Ok(())
@@ -283,29 +285,47 @@ fn refresh() -> Result<(), String> {
     }
 }
 
-pub fn refresh_widgets() {
+fn migrate() -> Result<(), String> {
+    require_user()?;
+    let legacy = plugin_dir()?.with_file_name(LEGACY_PLUGIN_ID);
+
+    let _ = spawn_quiet("omarchy", &["plugin", "disable", LEGACY_PLUGIN_ID]);
+    let _ = fs::remove_dir_all(&legacy);
+    install()
+}
+
+fn for_widget_users(bin: &str, plugin: &str, action: &str) {
     use std::os::unix::fs::MetadataExt;
 
-    let (Ok(exe), Ok(homes)) = (std::env::current_exe(), fs::read_dir("/home")) else {
+    let Ok(homes) = fs::read_dir("/home") else {
         return;
     };
 
     for home in homes.flatten().map(|e| e.path()) {
-        let dir = home.join(".config/omarchy/plugins").join(PLUGIN_ID);
-        let Some(user) = fs::metadata(&dir)
-            .ok()
-            .and_then(|m| crate::platform::user_name(m.uid()))
-        else {
+        let Ok(meta) = fs::metadata(home.join(".config/omarchy/plugins").join(plugin)) else {
+            continue;
+        };
+        let Some(user) = crate::platform::user_name(meta.uid()) else {
             continue;
         };
 
         let home_env = format!("HOME={}", home.display());
-        let bin = exe.to_string_lossy();
+        let runtime = format!("XDG_RUNTIME_DIR=/run/user/{}", meta.uid());
         let _ = spawn_quiet(
             "runuser",
-            &["-u", &user, "--", "env", &home_env, &bin, "omarchy", "refresh"],
+            &["-u", &user, "--", "env", &home_env, &runtime, bin, "omarchy", action],
         );
     }
+}
+
+pub fn refresh_widgets() {
+    if let Ok(exe) = std::env::current_exe() {
+        for_widget_users(&exe.to_string_lossy(), PLUGIN_ID, "refresh");
+    }
+}
+
+pub fn migrate_widgets(bin: &str) {
+    for_widget_users(bin, LEGACY_PLUGIN_ID, "migrate");
 }
 
 fn uninstall() -> Result<(), String> {
@@ -330,6 +350,6 @@ pub fn for_sudo_user(bin: &str, action: &str) {
     let runtime = format!("XDG_RUNTIME_DIR=/run/user/{uid}");
     let args = ["-u", &user, "-H", "env", &runtime, bin, "omarchy", action];
     if let Err(e) = spawn_quiet("sudo", &args) {
-        println!("Omarchy bar widget not updated ({e}); run `astral-warden omarchy {action}` as {user}");
+        println!("Omarchy bar widget not updated ({e}); run `gpu-warden omarchy {action}` as {user}");
     }
 }

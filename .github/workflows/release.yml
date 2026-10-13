@@ -17,16 +17,23 @@ jobs:
       - run: cargo build --release --locked --features portable --target-dir target-portable
       - shell: pwsh
         run: |
-          $base = "astral-warden-${{ github.ref_name }}-windows-x86_64"
-          Copy-Item target/release/astral-warden.exe "$base-setup.exe"
+          $base = "gpu-warden-${{ github.ref_name }}-windows-x86_64"
+          Copy-Item target/release/gpu-warden.exe "$base-setup.exe"
 
           New-Item -ItemType Directory "$base-portable" | Out-Null
-          Copy-Item target-portable/release/astral-warden.exe, README.md, LICENSE "$base-portable"
+          Copy-Item target-portable/release/gpu-warden.exe, README.md, LICENSE "$base-portable"
           Compress-Archive "$base-portable" "$base-portable.zip"
 
-          New-Item -ItemType Directory $base | Out-Null
-          Copy-Item target/release/astral-warden.exe, README.md, LICENSE $base
-          Compress-Archive $base "$base.zip"
+          $legacy = "astral-warden-${{ github.ref_name }}-windows-x86_64"
+          Copy-Item target/release/gpu-warden.exe "$legacy-setup.exe"
+
+          New-Item -ItemType Directory "$legacy-portable" | Out-Null
+          Copy-Item target-portable/release/gpu-warden.exe "$legacy-portable/astral-warden.exe"
+          Compress-Archive "$legacy-portable" "$legacy-portable.zip"
+
+          New-Item -ItemType Directory $legacy | Out-Null
+          Copy-Item target/release/gpu-warden.exe "$legacy/astral-warden.exe"
+          Compress-Archive $legacy "$legacy.zip"
       - uses: actions/upload-artifact@v7
         with:
           name: windows
@@ -45,16 +52,16 @@ jobs:
           tool: cargo-zigbuild
       - run: cargo zigbuild --release --locked --target x86_64-unknown-linux-gnu.2.17
       - run: |
-          bin=target/x86_64-unknown-linux-gnu/release/astral-warden
+          bin=target/x86_64-unknown-linux-gnu/release/gpu-warden
           for flavor in systemd openrc runit; do
-            name="astral-warden-${GITHUB_REF_NAME}-linux-x86_64-${flavor}"
+            name="gpu-warden-${GITHUB_REF_NAME}-linux-x86_64-${flavor}"
             mkdir -p "$name/init"
             cp "$bin" README.md LICENSE "$name/"
             cp init/modules-load.conf init/udev.rules "$name/init/"
             case $flavor in
-              systemd) cp init/astral-warden.service "$name/init/" ;;
-              openrc)  cp init/astral-warden.openrc "$name/init/" ;;
-              runit)   cp init/astral-warden.runit "$name/init/" ;;
+              systemd) cp init/gpu-warden.service "$name/init/" ;;
+              openrc)  cp init/gpu-warden.openrc "$name/init/" ;;
+              runit)   cp init/gpu-warden.runit "$name/init/" ;;
             esac
             tar czf "$name.tar.gz" "$name"
           done
@@ -74,12 +81,17 @@ jobs:
           tool: cargo-zigbuild
       - run: cargo zigbuild --release --locked --features omarchy --target x86_64-unknown-linux-gnu.2.17
       - run: |
-          name="astral-warden-${GITHUB_REF_NAME}-linux-x86_64-omarchy"
+          name="gpu-warden-${GITHUB_REF_NAME}-linux-x86_64-omarchy"
           mkdir -p "$name/init" "$name/omarchy"
-          cp target/x86_64-unknown-linux-gnu/release/astral-warden README.md LICENSE "$name/"
-          cp init/modules-load.conf init/udev.rules init/astral-warden.service "$name/init/"
+          cp target/x86_64-unknown-linux-gnu/release/gpu-warden README.md LICENSE "$name/"
+          cp init/modules-load.conf init/udev.rules init/gpu-warden.service "$name/init/"
           cp omarchy/manifest.json omarchy/BarWidget.qml "$name/omarchy/"
           tar czf "$name.tar.gz" "$name"
+
+          legacy="astral-warden-${GITHUB_REF_NAME}-linux-x86_64-omarchy"
+          mkdir "$legacy"
+          cp target/x86_64-unknown-linux-gnu/release/gpu-warden "$legacy/astral-warden"
+          tar czf "$legacy.tar.gz" "$legacy"
       - uses: actions/upload-artifact@v7
         with:
           name: omarchy
@@ -98,8 +110,10 @@ jobs:
       - run: sha256sum *.exe *.zip *.tar.gz > SHA256SUMS
       - run: |
           version="${GITHUB_REF_NAME#v}"
-          hash=$(sha256sum astral-warden-*-windows-x86_64-portable.zip | cut -d' ' -f1)
-          sed -e "s/@VERSION@/$version/g" -e "s/@HASH@/$hash/" src/packaging/scoop/astral-warden.json > astral-warden.json
+          hash=$(sha256sum gpu-warden-*-windows-x86_64-portable.zip | cut -d' ' -f1)
+          sed -e "s/@VERSION@/$version/g" -e "s/@HASH@/$hash/" src/packaging/scoop/gpu-warden.json > gpu-warden.json
+          legacy=$(sha256sum astral-warden-*-windows-x86_64-portable.zip | cut -d' ' -f1)
+          sed -e "s/@VERSION@/$version/g" -e "s/@HASH@/$legacy/" src/packaging/scoop/astral-warden.json > astral-warden.json
       - uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -107,6 +121,7 @@ jobs:
             *.zip
             *.tar.gz
             SHA256SUMS
+            gpu-warden.json
             astral-warden.json
           generate_release_notes: true
 
@@ -123,9 +138,9 @@ jobs:
       - if: env.AUR_KEY != ''
         uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
         with:
-          pkgname: astral-warden-bin
+          pkgname: gpu-warden-bin
           pkgbuild: packaging/aur/PKGBUILD
-          assets: packaging/aur/astral-warden.install
+          assets: packaging/aur/gpu-warden.install
           updpkgsums: true
           commit_username: Pat-1337
           commit_email: ${{ secrets.AUR_EMAIL }}

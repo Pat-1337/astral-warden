@@ -1,7 +1,7 @@
 # Command line
 
 ```
-astral-warden [command] [flags]
+gpu-warden [command] [flags]
 ```
 
 | Command | Does |

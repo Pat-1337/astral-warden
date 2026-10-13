@@ -8,36 +8,36 @@ Two builds, same program:
 
 | Build | File | For |
 |---|---|---|
-| Installer | `astral-warden-<version>-windows-x86_64-setup.exe` | most people: installs, starts at logon, updates itself, uninstalls from Settings |
-| Portable | `astral-warden-<version>-windows-x86_64-portable.zip` | running from a folder of your choice, nothing installed |
+| Installer | `gpu-warden-<version>-windows-x86_64-setup.exe` | most people: installs, starts at logon, updates itself, uninstalls from Settings |
+| Portable | `gpu-warden-<version>-windows-x86_64-portable.zip` | running from a folder of your choice, nothing installed |
 
 ### Installer
 
-Double-click `astral-warden-<version>-windows-x86_64-setup.exe` and accept the UAC prompt. It:
+Double-click `gpu-warden-<version>-windows-x86_64-setup.exe` and accept the UAC prompt. It:
 
 | Step | Result |
 |---|---|
-| Copy binary | `C:\Program Files\AstralWarden\astral-warden.exe`; the downloaded file can be deleted |
-| Default config | `C:\ProgramData\astral-warden\config.toml` |
-| Scheduled task | `AstralWarden`, runs at every logon with the highest privileges, no time limit, restarts on failure |
-| Apps list | **Astral Warden** in Settings → Apps → Installed apps |
+| Copy binary | `C:\Program Files\GPUWarden\gpu-warden.exe`; the downloaded file can be deleted |
+| Default config | `C:\ProgramData\gpu-warden\config.toml` |
+| Scheduled task | `GPUWarden`, runs at every logon with the highest privileges, no time limit, restarts on failure |
+| Apps list | **GPU Warden** in Settings → Apps → Installed apps |
 | Start | starts right away |
 
 With fast user switching, a second session waits (`--wait`) and takes over when the first logs off.
 
-Uninstall from **Settings → Apps → Installed apps → Astral Warden → Uninstall**, or run `astral-warden uninstall`. It stops the running instance and removes everything: the program folder, config, log, state files, the logon task, registry entries, and update downloads.
+Uninstall from **Settings → Apps → Installed apps → GPU Warden → Uninstall**, or run `gpu-warden uninstall`. It stops the running instance and removes everything: the program folder, config, log, state files, the logon task, registry entries, and update downloads. It also clears what Windows records about every program it runs: the MuiCache, UserAssist, Compatibility Assistant and tray icon entries, and the Prefetch files. A leftover Astral Warden install is removed too.
 
 ### Portable
 
-Unzip `astral-warden-<version>-windows-x86_64-portable.zip` anywhere and run `astral-warden.exe`. Everything it writes stays next to it:
+Unzip `gpu-warden-<version>-windows-x86_64-portable.zip` anywhere and run `gpu-warden.exe`. Everything it writes stays next to it:
 
 | File | Holds |
 |---|---|
-| `astral-warden.toml` | config |
-| `astral-warden.log` | log |
-| `astral-warden.power-cap`, `astral-warden.last-shutdown` | power cap state, last protective shutdown |
+| `gpu-warden.toml` | config |
+| `gpu-warden.log` | log |
+| `gpu-warden.power-cap`, `gpu-warden.last-shutdown` | power cap state, last protective shutdown |
 
-Tick **Start at logon** in the tray menu to start this copy at every logon (UAC prompt). `astral-warden uninstall` removes the logon task, registry entries, and the files above; then delete the folder. Scoop installs this build.
+Tick **Start at logon** in the tray menu to start this copy at every logon (UAC prompt). `gpu-warden uninstall` removes the logon task, registry entries, and the files above; then delete the folder. Scoop installs this build.
 
 ### Tray
 
@@ -75,26 +75,26 @@ Requirements:
 - root, for `/dev/i2c-*`, `/dev/ttyACM*`, NVML power limits, and poweroff
 
 ```sh
-tar xzf astral-warden-<version>-linux-x86_64-<init>.tar.gz
-cd astral-warden-*/
-sudo ./astral-warden install
+tar xzf gpu-warden-<version>-linux-x86_64-<init>.tar.gz
+cd gpu-warden-*/
+sudo ./gpu-warden install
 ```
 
 The binary needs glibc 2.17 or newer, which it uses to load NVML for the power cap. It is the same in every archive. The `-systemd`, `-openrc`, and `-runit` archives differ only in the reference service file in `init/`. `install` detects the init system on its own:
 
 | Init | Detected by | Service file | Logs |
 |---|---|---|---|
-| systemd | `/run/systemd/system` | `/etc/systemd/system/astral-warden.service` | `journalctl -u astral-warden` |
-| OpenRC | `/run/openrc` or `/sbin/openrc-run` | `/etc/init.d/astral-warden` (supervise-daemon) | `/var/log/astral-warden.log` |
-| runit | `/run/runit` or `/etc/runit` | `/etc/sv/astral-warden/run`, linked into the runsvdir | runit log or console |
+| systemd | `/run/systemd/system` | `/etc/systemd/system/gpu-warden.service` | `journalctl -u gpu-warden` |
+| OpenRC | `/run/openrc` or `/sbin/openrc-run` | `/etc/init.d/gpu-warden` (supervise-daemon) | `/var/log/gpu-warden.log` |
+| runit | `/run/runit` or `/etc/runit` | `/etc/sv/gpu-warden/run`, linked into the runsvdir | runit log or console |
 
-The binary goes to `/usr/local/bin/astral-warden` and the config to `/etc/astral-warden/config.toml`.
+The binary goes to `/usr/local/bin/gpu-warden` and the config to `/etc/gpu-warden/config.toml`.
 
-With any other init system, run `astral-warden run` as root at boot. The service files in `init/` are templates: `@BIN@` and `@CONFIG@` are the placeholders.
+With any other init system, run `gpu-warden run` as root at boot. The service files in `init/` are templates: `@BIN@` and `@CONFIG@` are the placeholders.
 
 Desktop notifications go through `notify-send` to every logged-in user's session bus. Critical events also go to `wall`.
 
-Uninstall: `sudo astral-warden uninstall`. It removes the binary, service, module and udev files, config (`/etc/astral-warden`), state (`/var/lib/astral-warden`, `/run/astral-warden`), update leftovers, and the Omarchy bar widget.
+Uninstall: `sudo gpu-warden uninstall`. It removes the binary, service, module and udev files, config (`/etc/gpu-warden`), state (`/var/lib/gpu-warden`, `/run/gpu-warden`), update leftovers, and the Omarchy bar widget.
 
 When it starts from a double-click, a toast confirms it is running and that the card's pins are readable. Starts at logon are silent.
 
@@ -103,12 +103,12 @@ After a protective shutdown, the next start shows when and why it happened.
 ## Check it works
 
 ```
-astral-warden status
+gpu-warden status
 ```
 
 This prints the detected board, each pin's current and voltage, total power, imbalance, the NVML power limit, and the verdict. On Linux, run it with `sudo`.
 
-`astral-warden status --watch` prints a live line each poll interval: total current and power, the hottest pin, NVML board power, and the process's own memory. Run it without the tray, it shows whether memory stays flat.
+`gpu-warden status --watch` prints a live line each poll interval: total current and power, the hottest pin, NVML board power, and the process's own memory. Run it without the tray, it shows whether memory stays flat.
 
 ## Log
 
@@ -116,8 +116,8 @@ Nothing is written to disk until the first warning, critical event, or error. Fr
 
 | OS | Log |
 |---|---|
-| Windows installer | `C:\ProgramData\astral-warden\astral-warden.log` (rotated at 1 MB) |
-| Windows portable | `astral-warden.log` next to the exe (rotated at 1 MB) |
-| Linux | the service log: journald, `/var/log/astral-warden.log` on OpenRC, or runit's logger |
+| Windows installer | `C:\ProgramData\gpu-warden\gpu-warden.log` (rotated at 1 MB) |
+| Windows portable | `gpu-warden.log` next to the exe (rotated at 1 MB) |
+| Linux | the service log: journald, `/var/log/gpu-warden.log` on OpenRC, or runit's logger |
 
 The config is read once at start. Restart after editing it.

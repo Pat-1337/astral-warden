@@ -166,37 +166,37 @@ impl Config {
 pub fn default_path() -> PathBuf {
     #[cfg(all(windows, feature = "portable"))]
     return std::env::current_exe()
-        .unwrap_or_else(|_| PathBuf::from("astral-warden.exe"))
-        .with_file_name("astral-warden.toml");
+        .unwrap_or_else(|_| PathBuf::from("gpu-warden.exe"))
+        .with_extension("toml");
 
     #[cfg(all(windows, not(feature = "portable")))]
     return std::env::var_os("ProgramData")
         .map_or_else(|| PathBuf::from(r"C:\ProgramData"), PathBuf::from)
-        .join("astral-warden")
+        .join("gpu-warden")
         .join("config.toml");
 
     #[cfg(not(windows))]
-    return PathBuf::from("/etc/astral-warden/config.toml");
+    return PathBuf::from("/etc/gpu-warden/config.toml");
 }
 
 pub fn state_path() -> PathBuf {
     #[cfg(all(windows, feature = "portable"))]
-    return default_path().with_file_name("astral-warden.power-cap");
+    return default_path().with_extension("power-cap");
     #[cfg(all(windows, not(feature = "portable")))]
     return default_path().with_file_name("power-cap.state");
     #[cfg(target_os = "linux")]
-    return PathBuf::from("/run/astral-warden.power-cap");
+    return PathBuf::from("/run/gpu-warden.power-cap");
     #[cfg(not(any(windows, target_os = "linux")))]
-    return std::env::temp_dir().join("astral-warden.power-cap");
+    return std::env::temp_dir().join("gpu-warden.power-cap");
 }
 
 pub fn note_path() -> PathBuf {
     #[cfg(all(windows, feature = "portable"))]
-    return default_path().with_file_name("astral-warden.last-shutdown");
+    return default_path().with_extension("last-shutdown");
     #[cfg(all(windows, not(feature = "portable")))]
     return default_path().with_file_name("last-shutdown.txt");
     #[cfg(target_os = "linux")]
-    return PathBuf::from("/var/lib/astral-warden/last-shutdown");
+    return PathBuf::from("/var/lib/gpu-warden/last-shutdown");
     #[cfg(not(any(windows, target_os = "linux")))]
-    return std::env::temp_dir().join("astral-warden.last-shutdown");
+    return std::env::temp_dir().join("gpu-warden.last-shutdown");
 }

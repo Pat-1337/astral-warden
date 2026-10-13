@@ -15,9 +15,14 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     FindWindowW, MB_ICONINFORMATION, MessageBoxW, PostMessageW, SW_HIDE, WM_CLOSE,
 };
 
-const TASK: &str = "AstralWarden";
+const TASK: &str = "GPUWarden";
 #[cfg(not(feature = "portable"))]
-const EXE: &str = "astral-warden.exe";
+const EXE: &str = "gpu-warden.exe";
+const LEGACY_TASK: &str = "AstralWarden";
+const LEGACY_CLASS: &str = "AstralWarden";
+const LEGACY_EXE: &str = "astral-warden.exe";
+const NAMES: &[&str] = &["gpu-warden", "gpuwarden", "astral-warden", "astralwarden"];
+const PREFETCH: &str = r#"/C ping -n 15 127.0.0.1 >NUL & del /F /Q "%SystemRoot%\Prefetch\GPU-WARDEN*.pf" "%SystemRoot%\Prefetch\ASTRAL-WARDEN*.pf""#;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const RETRY: Duration = Duration::from_millis(250);
 
@@ -50,10 +55,25 @@ fn scoop_current(exe: &Path) -> Option<PathBuf> {
     Some(path)
 }
 
+fn known_dir(var: &str, fallback: &str) -> PathBuf {
+    std::env::var_os(var).map_or_else(|| PathBuf::from(fallback), PathBuf::from)
+}
+
 fn install_dir() -> PathBuf {
-    std::env::var_os("ProgramFiles")
-        .map_or_else(|| PathBuf::from(r"C:\Program Files"), PathBuf::from)
-        .join("AstralWarden")
+    known_dir("ProgramFiles", r"C:\Program Files").join("GPUWarden")
+}
+
+fn legacy_dirs() -> [PathBuf; 3] {
+    [
+        known_dir("ProgramFiles", r"C:\Program Files").join("AstralWarden"),
+        known_dir("ProgramData", r"C:\ProgramData").join("astral-warden"),
+        std::env::temp_dir().join("astral-warden-update"),
+    ]
+}
+
+fn ours(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    NAMES.iter().any(|name| text.contains(name))
 }
 
 fn xml_escape(text: &str) -> String {
@@ -130,7 +150,7 @@ pub fn relaunch_elevated(args: &str, wait: bool) -> Result<u32, String> {
 fn report(message: &str) {
     println!("{message}");
     if !CONSOLE.load(Ordering::Relaxed) {
-        let (text, title) = (wide(message), wide("Astral Warden"));
+        let (text, title) = (wide(message), wide("GPU Warden"));
         unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_ICONINFORMATION) };
     }
 }
@@ -171,6 +191,24 @@ fn target(current: &Path) -> Result<PathBuf, String> {
     Ok(scoop_current(current).unwrap_or_else(|| current.to_path_buf()))
 }
 
+fn create_task(exe: &Path, config: &Path) -> Result<(), String> {
+    let xml_path = std::env::temp_dir().join("gpu-warden-task.xml");
+    let bytes: Vec<u8> = [0xFEFF]
+        .into_iter()
+        .chain(task_xml(exe, config).encode_utf16())
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    std::fs::write(&xml_path, bytes).map_err(|e| format!("{}: {e}", xml_path.display()))?;
+
+    let created = hidden(
+        "schtasks",
+        &["/Create", "/F", "/TN", TASK, "/XML", &xml_path.to_string_lossy()],
+    );
+    let _ = std::fs::remove_file(&xml_path);
+    created?;
+    registry::set_autostart(true)
+}
+
 pub fn install(config: &Path, background: bool) -> Result<(), String> {
     if !is_admin() {
         relaunch_elevated(&install_args(config, background), false)?;
@@ -187,31 +225,21 @@ pub fn install(config: &Path, background: bool) -> Result<(), String> {
     let current = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe = target(&current)?;
 
+    #[cfg(not(feature = "portable"))]
+    copy_legacy_data()?;
+
     if Config::write_default(config).map_err(|e| format!("{}: {e}", config.display()))? {
         println!("wrote {}", config.display());
     }
 
-    let xml_path = std::env::temp_dir().join("astral-warden-task.xml");
-    let bytes: Vec<u8> = [0xFEFF]
-        .into_iter()
-        .chain(task_xml(&exe, config).encode_utf16())
-        .flat_map(u16::to_le_bytes)
-        .collect();
-    std::fs::write(&xml_path, bytes).map_err(|e| format!("{}: {e}", xml_path.display()))?;
-
-    let created = hidden(
-        "schtasks",
-        &["/Create", "/F", "/TN", TASK, "/XML", &xml_path.to_string_lossy()],
-    );
-    let _ = std::fs::remove_file(&xml_path);
-    created?;
-    registry::set_autostart(true)?;
+    create_task(&exe, config)?;
 
     if background {
         log!("logon task registered for {}", exe.display());
         return Ok(());
     }
 
+    retire_legacy();
     hidden("schtasks", &["/Run", "/TN", TASK])?;
 
     #[cfg(not(feature = "portable"))]
@@ -238,7 +266,7 @@ pub fn adopt(config: &Path) -> bool {
 
     if let Err(e) = install(config, false) {
         report(&format!(
-            "Astral Warden was not installed: {e}.\n\nThe portable version runs without installing."
+            "GPU Warden was not installed: {e}.\n\nThe portable version runs without installing."
         ));
     }
 
@@ -260,27 +288,30 @@ pub fn refresh_registration() {
     }
 }
 
-fn close_running() {
-    let class = wide(WINDOW_CLASS);
+fn close_windows(class: &str) {
+    let class = wide(class);
 
     for _ in 0..50 {
         let hwnd = unsafe { FindWindowW(class.as_ptr(), std::ptr::null()) };
-        if hwnd.is_null() && single_instance().is_ok() {
+        if hwnd.is_null() {
             return;
         }
 
-        if !hwnd.is_null() {
-            unsafe { PostMessageW(hwnd, WM_CLOSE, 0, 0) };
-        }
+        unsafe { PostMessageW(hwnd, WM_CLOSE, 0, 0) };
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+fn close_running() {
+    close_windows(WINDOW_CLASS);
+    let _ = retry(single_instance);
 }
 
 fn remove_dir(dir: &Path) {
     let inside = std::env::current_exe().is_ok_and(|exe| exe.starts_with(dir));
 
     if inside {
-        let script = format!("/C ping -n 3 127.0.0.1 >NUL & rmdir /S /Q \"{}\"", dir.display());
+        let script = format!("/C ping -n 5 127.0.0.1 >NUL & rmdir /S /Q \"{}\"", dir.display());
         let _ = Command::new("cmd")
             .raw_arg(script)
             .creation_flags(CREATE_NO_WINDOW)
@@ -295,16 +326,132 @@ fn remove_dir(dir: &Path) {
 }
 
 fn remove_leftovers(exe: &Path) {
-    for name in [
-        "astral-warden.old.exe",
-        "astral-warden.new.exe",
-        "astral-warden.failed.exe",
-        "astral-warden.skip",
-    ] {
-        let _ = std::fs::remove_file(exe.with_file_name(name));
+    for extension in ["old.exe", "new.exe", "failed.exe", "skip"] {
+        let _ = std::fs::remove_file(exe.with_extension(extension));
     }
 
-    remove_dir(&std::env::temp_dir().join("astral-warden-update"));
+    remove_dir(&std::env::temp_dir().join("gpu-warden-update"));
+}
+
+fn forget_traces() {
+    registry::forget_user_traces(ours);
+
+    let prefetch = known_dir("SystemRoot", r"C:\Windows").join("Prefetch");
+    for file in std::fs::read_dir(prefetch).into_iter().flatten().flatten() {
+        if ours(&file.file_name().to_string_lossy()) {
+            let _ = std::fs::remove_file(file.path());
+        }
+    }
+
+    let _ = Command::new("cmd")
+        .raw_arg(PREFETCH)
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
+}
+
+fn retire_legacy() {
+    let _ = hidden("schtasks", &["/Delete", "/F", "/TN", LEGACY_TASK]);
+    close_windows(LEGACY_CLASS);
+    registry::unregister_legacy();
+
+    for dir in legacy_dirs() {
+        remove_dir(&dir);
+    }
+}
+
+#[cfg(not(feature = "portable"))]
+fn copy_legacy_data() -> Result<(), String> {
+    let config = config::default_path();
+    let data = config.parent().ok_or("no config folder")?;
+    let legacy = &legacy_dirs()[1];
+    if !legacy.exists() {
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(data).map_err(|e| format!("{}: {e}", data.display()))?;
+    for (from, to) in [
+        ("config.toml", "config.toml"),
+        ("astral-warden.log", "gpu-warden.log"),
+        ("last-shutdown.txt", "last-shutdown.txt"),
+    ] {
+        let (from, to) = (legacy.join(from), data.join(to));
+        if from.exists() && !to.exists() {
+            std::fs::copy(&from, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(not(feature = "portable"))]
+fn move_install(current: &Path, autostart: bool) -> Result<(PathBuf, PathBuf), String> {
+    let config = config::default_path();
+    copy_legacy_data()?;
+
+    let exe = target(current)?;
+    if autostart {
+        create_task(&exe, &config)?;
+    }
+
+    Ok((exe, config))
+}
+
+#[cfg(feature = "portable")]
+fn move_install(current: &Path, autostart: bool) -> Result<(PathBuf, PathBuf), String> {
+    let exe = current.with_file_name("gpu-warden.exe");
+
+    for extension in ["toml", "log", "log.old", "power-cap", "last-shutdown"] {
+        let (from, to) = (current.with_extension(extension), exe.with_extension(extension));
+        if from.exists() && !to.exists() {
+            std::fs::rename(&from, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+        }
+    }
+
+    std::fs::rename(current, &exe).map_err(|e| format!("{}: {e}", exe.display()))?;
+    let config = exe.with_extension("toml");
+    if autostart {
+        create_task(&exe, &config)?;
+    }
+
+    Ok((exe, config))
+}
+
+pub fn migrate(updated: Option<&str>) -> bool {
+    let Ok(current) = std::env::current_exe() else {
+        return false;
+    };
+
+    let legacy = current.file_name().is_some_and(|n| n.eq_ignore_ascii_case(LEGACY_EXE));
+    if !legacy || scoop_current(&current).is_some() {
+        return false;
+    }
+
+    let autostart = registry::legacy_autostart() || hidden("schtasks", &["/Query", "/TN", LEGACY_TASK]).is_ok();
+    if (autostart || cfg!(not(feature = "portable"))) && !is_admin() {
+        return false;
+    }
+
+    let (exe, config) = match move_install(&current, autostart) {
+        Ok(moved) => moved,
+        Err(e) => {
+            log!("moving to GPU Warden failed: {e}");
+            return false;
+        }
+    };
+
+    let mut run = Command::new(&exe);
+    run.args(["run", "--wait", "--silent", "--config"]).arg(&config);
+    if let Some(version) = updated {
+        run.args(["--updated", version]);
+    }
+
+    if let Err(e) = run.spawn() {
+        log!("{}: {e}", exe.display());
+        return false;
+    }
+
+    retire_legacy();
+    true
 }
 
 #[cfg(not(feature = "portable"))]
@@ -348,6 +495,8 @@ pub fn uninstall(background: bool) -> Result<(), String> {
 
     registry::unregister();
     remove_data();
+    retire_legacy();
+    forget_traces();
 
     let current = std::env::current_exe().map_err(|e| e.to_string())?;
     remove_leftovers(&current);
@@ -356,11 +505,11 @@ pub fn uninstall(background: bool) -> Result<(), String> {
     remove_dir(&install_dir());
 
     #[cfg(not(feature = "portable"))]
-    report("Astral Warden is uninstalled. Nothing is left behind.");
+    report("GPU Warden is uninstalled. Nothing is left behind.");
 
     #[cfg(feature = "portable")]
     report(&format!(
-        "Astral Warden is removed: logon task, settings, and logs. Delete {} to finish.",
+        "GPU Warden is removed: logon task, settings, and logs. Delete {} to finish.",
         current.display()
     ));
 

@@ -1,6 +1,6 @@
 # Configuration
 
-TOML, at `C:\ProgramData\astral-warden\config.toml` (Windows installer), `astral-warden.toml` next to the exe (Windows portable), or `/etc/astral-warden/config.toml` (Linux). If the default path has no file, all defaults apply. A file named with `--config` must exist. An unknown key or invalid value refuses to start, so a typo can't silently disable protection.
+TOML, at `C:\ProgramData\gpu-warden\config.toml` (Windows installer), `gpu-warden.toml` next to the exe (Windows portable), or `/etc/gpu-warden/config.toml` (Linux). If the default path has no file, all defaults apply. A file named with `--config` must exist. An unknown key or invalid value refuses to start, so a typo can't silently disable protection.
 
 ```toml
 poll_ms = 500
@@ -50,7 +50,7 @@ Restart the service, or Exit and relaunch from the tray, after editing.
 
 ## MSI Afterburner and other tuners
 
-astral-warden only touches the **power limit**, and only while a warning is active.
+gpu-warden only touches the **power limit**, and only while a warning is active.
 
 - Clocks, voltage curves, undervolts, and fan curves are never changed.
 - Before capping, it saves the limit that is currently set (Afterburner's or yours) and puts it back after `restore_after_secs` of clean readings.

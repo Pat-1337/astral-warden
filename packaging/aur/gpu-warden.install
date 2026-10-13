@@ -1,0 +1,18 @@
+post_install() {
+  if [ -f /etc/astral-warden/config.toml ] || [ -f /etc/astral-warden/config.toml.pacsave ]; then
+    systemctl disable --now astral-warden.service 2>/dev/null
+    cp -f /etc/astral-warden/config.toml* /etc/gpu-warden/config.toml 2>/dev/null
+    rm -rf /etc/astral-warden /var/lib/astral-warden /run/astral-warden
+    systemctl enable --now gpu-warden.service
+    echo 'Astral Warden is now GPU Warden. Your config moved to /etc/gpu-warden and the service is running.'
+    return
+  fi
+
+  echo 'Load i2c-dev and start the watchdog:'
+  echo '  sudo modprobe i2c-dev'
+  echo '  sudo systemctl enable --now gpu-warden'
+}
+
+post_upgrade() {
+  echo 'Restart to use the new version: sudo systemctl restart gpu-warden'
+}

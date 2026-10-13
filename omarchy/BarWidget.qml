@@ -5,9 +5,9 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "pat-1337.astral-warden"
+  moduleName: "pat-1337.gpu-warden"
 
-  readonly property string statusPath: "/run/astral-warden/status.json"
+  readonly property string statusPath: "/run/gpu-warden/status.json"
   readonly property int staleSecs: 5
   readonly property string glyph: ""
 
@@ -27,7 +27,7 @@ BarWidget {
   }
 
   function tooltip() {
-    if (!root.online) return "Astral Warden\nService not running"
+    if (!root.online) return "GPU Warden\nService not running"
 
     var lines = [root.status.name]
     for (var i = 0; i < root.status.rows.length; i++) {
@@ -72,8 +72,8 @@ BarWidget {
     onPressed: function(b) {
       if (!root.bar) return
 
-      if (b === Qt.RightButton) root.bar.run("astral-warden omarchy update")
-      else root.bar.run("omarchy-launch-floating-terminal-with-presentation astral-warden omarchy watch")
+      if (b === Qt.RightButton) root.bar.run("gpu-warden omarchy update")
+      else root.bar.run("omarchy-launch-floating-terminal-with-presentation gpu-warden omarchy watch")
     }
   }
 }

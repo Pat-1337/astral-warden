@@ -5,7 +5,7 @@ mod registry;
 mod tray;
 mod wireview;
 
-pub use install::{adopt, install, uninstall};
+pub use install::{adopt, install, migrate, uninstall};
 
 use crate::config::{self, Config};
 use crate::display;
@@ -53,7 +53,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WNDCLASSW,
 };
 
-const WINDOW_CLASS: &str = "AstralWarden";
+const WINDOW_CLASS: &str = "GPUWarden";
 const WM_TRAY: u32 = WM_APP + 1;
 const POLL_TIMER: usize = 1;
 const WM_AUTOSTART: u32 = WM_APP + 2;
@@ -230,9 +230,9 @@ impl Drop for Lock {
 }
 
 pub fn single_instance() -> Result<Lock, String> {
-    let name = wide(r"Global\AstralWarden");
+    let name = wide(r"Global\GPUWarden");
     let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
-    let running = || Err("Astral Warden is already running".into());
+    let running = || Err("GPU Warden is already running".into());
 
     match (handle.is_null(), unsafe { GetLastError() }) {
         (false, ERROR_ALREADY_EXISTS) => {
@@ -303,7 +303,11 @@ fn hidden(program: &str, args: &[&str]) -> Result<String, String> {
 }
 
 fn log_path() -> PathBuf {
-    config::default_path().with_file_name("astral-warden.log")
+    #[cfg(feature = "portable")]
+    return config::default_path().with_extension("log");
+
+    #[cfg(not(feature = "portable"))]
+    return config::default_path().with_file_name("gpu-warden.log");
 }
 
 fn open_in_shell(path: &Path) {
@@ -656,8 +660,8 @@ pub fn attach_console() {
 pub fn fatal(message: &str) {
     if !CONSOLE.load(Ordering::Relaxed) {
         let (text, title) = (
-            wide(&format!("Astral Warden is not running.\n\n{message}")),
-            wide("Astral Warden"),
+            wide(&format!("GPU Warden is not running.\n\n{message}")),
+            wide("GPU Warden"),
         );
         unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_ICONERROR) };
     }

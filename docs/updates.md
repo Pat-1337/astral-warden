@@ -12,16 +12,16 @@ Package-managed installs are left to their package manager:
 |---|---|
 | Windows installer (`…-setup.exe`) | itself |
 | Windows portable zip | itself, in place |
-| Omarchy archive (`/usr/local/bin/astral-warden`) | itself |
-| Scoop | `scoop update astral-warden` |
-| AUR (`/usr/bin/astral-warden`) | pacman / your AUR helper |
+| Omarchy archive (`/usr/local/bin/gpu-warden`) | itself |
+| Scoop | `scoop update gpu-warden` |
+| AUR (`/usr/bin/gpu-warden`) | pacman / your AUR helper |
 | other Linux archives | not updated; download the new release |
 
-Turn it on or off from the Windows tray (**Auto update**), or with `astral-warden auto-update <on|off>` (`sudo` on Linux).
+Turn it on or off from the Windows tray (**Auto update**), or with `gpu-warden auto-update <on|off>` (`sudo` on Linux).
 
 ## Check now
 
-**Check for updates** in the Windows tray, or right-click the Omarchy bar widget (`astral-warden omarchy update`), checks right away, even with `auto_update = false`. A toast answers: up to date, update found (it then installs as below), or why the check failed. On Scoop it says to run `scoop update astral-warden`.
+**Check for updates** in the Windows tray, or right-click the Omarchy bar widget (`gpu-warden omarchy update`), checks right away, even with `auto_update = false`. A toast answers: up to date, update found (it then installs as below), or why the check failed. On Scoop it says to run `scoop update gpu-warden`.
 
 ## What happens
 
@@ -29,9 +29,23 @@ Turn it on or off from the Windows tray (**Auto update**), or with `astral-warde
 2. If the release is newer, it downloads the file for this build (`…-setup.exe`, `…-portable.zip`, or `…-omarchy.tar.gz`) and `SHA256SUMS` over HTTPS (with `curl`, built into Windows 10+ and Omarchy).
 3. It verifies the SHA-256, extracts the binary if needed, and runs it with `--version` to confirm it starts and reports the expected version. Any failure leaves the running version untouched and is logged.
 4. It waits until every pin reads OK and no power cap is engaged. During a warning, recovery, sensor loss, or shutdown it never swaps.
-5. It moves the running binary aside as `astral-warden.old`, puts the new one in its place, and restarts into it: in place (`exec`) on Linux, a new process on Windows. Monitoring pauses for well under a second.
-6. The new version shows a notification: **Astral Warden updated · Now running X (was Y).** On Omarchy it also refreshes the bar widget files for each user who has it.
+5. It moves the running binary aside as `gpu-warden.old`, puts the new one in its place, and restarts into it: in place (`exec`) on Linux, a new process on Windows. Monitoring pauses for well under a second.
+6. The new version shows a notification: **GPU Warden updated · Now running X (was Y).** On Omarchy it also refreshes the bar widget files for each user who has it.
 
-If the new version fails to start, it puts the previous binary back, restarts it, and records the failed version in `astral-warden.skip` so it isn't tried again. A later release is tried as usual.
+If the new version fails to start, it puts the previous binary back, restarts it, and records the failed version in `gpu-warden.skip` so it isn't tried again. A later release is tried as usual.
 
-Downloads go to `/var/lib/astral-warden/update` on Linux and `%TEMP%\astral-warden-update` on Windows, and are removed after the swap.
+## From Astral Warden
+
+GPU Warden was called Astral Warden up to 0.9.0. An Astral Warden install updates to GPU Warden on its own and moves over on first start:
+
+| Install | What moves |
+|---|---|
+| Windows installer | program to `C:\Program Files\GPUWarden`, config and log to `C:\ProgramData\gpu-warden`, logon task, Apps entry |
+| Windows portable | the exe and its files next to it are renamed to `gpu-warden.*`, logon task |
+| Omarchy | binary to `/usr/local/bin/gpu-warden`, config to `/etc/gpu-warden`, service, bar widget |
+| Scoop | stays `astral-warden` and keeps updating. Switch with `scoop uninstall astral-warden`, then install `gpu-warden.json` |
+| AUR | install `gpu-warden-bin`; it replaces `astral-warden-bin` and moves the config |
+
+Everything under the old name is removed afterwards. Running `install` of GPU Warden by hand does the same cleanup.
+
+Downloads go to `/var/lib/gpu-warden/update` on Linux and `%TEMP%\gpu-warden-update` on Windows, and are removed after the swap.

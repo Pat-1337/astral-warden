@@ -1,31 +1,32 @@
 # Maintainer: Pat-1337 <https://github.com/Pat-1337>
 
-pkgname=astral-warden-bin
+pkgname=gpu-warden-bin
 pkgver=0.5.0
 pkgrel=1
 pkgdesc='Per-pin 12V-2x6 watchdog for ASUS ROG Astral and Matrix GPUs and the WireView Pro II'
 arch=('x86_64')
-url='https://github.com/Pat-1337/astral-warden'
+url='https://github.com/Pat-1337/gpu-warden'
 license=('MIT')
 depends=('glibc')
 optdepends=('nvidia-utils: GPU power cap through NVML' 'libnotify: desktop notifications')
-provides=('astral-warden')
-conflicts=('astral-warden')
-backup=('etc/astral-warden/config.toml')
-install=astral-warden.install
-source_x86_64=("$url/releases/download/v$pkgver/astral-warden-v$pkgver-linux-$CARCH-systemd.tar.gz")
+provides=('gpu-warden' 'astral-warden-bin')
+conflicts=('gpu-warden' 'astral-warden-bin')
+replaces=('astral-warden-bin')
+backup=('etc/gpu-warden/config.toml')
+install=gpu-warden.install
+source_x86_64=("$url/releases/download/v$pkgver/gpu-warden-v$pkgver-linux-$CARCH-systemd.tar.gz")
 sha256sums_x86_64=('SKIP')
 
 package() {
-  cd "astral-warden-v$pkgver-linux-$CARCH-systemd"
+  cd "gpu-warden-v$pkgver-linux-$CARCH-systemd"
 
-  install -Dm755 astral-warden "$pkgdir/usr/bin/astral-warden"
-  install -Dm644 init/modules-load.conf "$pkgdir/usr/lib/modules-load.d/astral-warden.conf"
-  install -Dm644 init/udev.rules "$pkgdir/usr/lib/udev/rules.d/70-astral-warden.rules"
+  install -Dm755 gpu-warden "$pkgdir/usr/bin/gpu-warden"
+  install -Dm644 init/modules-load.conf "$pkgdir/usr/lib/modules-load.d/gpu-warden.conf"
+  install -Dm644 init/udev.rules "$pkgdir/usr/lib/udev/rules.d/70-gpu-warden.rules"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 
-  install -d "$pkgdir/usr/lib/systemd/system" "$pkgdir/etc/astral-warden"
-  sed -e 's|@BIN@|/usr/bin/astral-warden|' -e 's|@CONFIG@|/etc/astral-warden/config.toml|' \
-    init/astral-warden.service > "$pkgdir/usr/lib/systemd/system/astral-warden.service"
-  ./astral-warden config > "$pkgdir/etc/astral-warden/config.toml"
+  install -d "$pkgdir/usr/lib/systemd/system" "$pkgdir/etc/gpu-warden"
+  sed -e 's|@BIN@|/usr/bin/gpu-warden|' -e 's|@CONFIG@|/etc/gpu-warden/config.toml|' \
+    init/gpu-warden.service > "$pkgdir/usr/lib/systemd/system/gpu-warden.service"
+  ./gpu-warden config > "$pkgdir/etc/gpu-warden/config.toml"
 }

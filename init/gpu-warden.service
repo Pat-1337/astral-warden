@@ -1,5 +1,5 @@
 [Unit]
-Description=Astral Warden 12V-2x6 watchdog
+Description=GPU Warden 12V-2x6 watchdog
 After=systemd-modules-load.service nvidia-persistenced.service
 
 [Service]

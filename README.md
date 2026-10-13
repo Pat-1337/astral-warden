@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/icon.svg" width="96" alt=""></p>
 
-<h1 align="center">Astral Warden</h1>
+<h1 align="center">GPU Warden</h1>
 
 <p align="center">Per-pin 12V-2x6 watchdog for Windows 11 and Linux</p>
 
@@ -31,7 +31,7 @@ Download the setup exe from [Releases](../../releases) and run it. It installs, 
 To keep everything in one folder instead, use the portable zip, or Scoop:
 
 ```
-scoop install https://github.com/Pat-1337/astral-warden/releases/latest/download/astral-warden.json
+scoop install https://github.com/Pat-1337/gpu-warden/releases/latest/download/gpu-warden.json
 ```
 
 ### Linux
@@ -39,7 +39,7 @@ scoop install https://github.com/Pat-1337/astral-warden/releases/latest/download
 Works with systemd, OpenRC and runit. From the extracted release folder:
 
 ```
-sudo ./astral-warden install
+sudo ./gpu-warden install
 ```
 
 ### Omarchy
@@ -51,20 +51,20 @@ Use the omarchy archive, which also adds a bar widget. See [Omarchy](docs/omarch
 One reading:
 
 ```
-astral-warden status
+gpu-warden status
 ```
 
 Live readings:
 
 ```
-astral-warden status --watch
+gpu-warden status --watch
 ```
 
 | | Config |
 |---|---|
-| Windows | `C:\ProgramData\astral-warden\config.toml` |
-| Windows portable | `astral-warden.toml` next to the exe |
-| Linux | `/etc/astral-warden/config.toml` |
+| Windows | `C:\ProgramData\gpu-warden\config.toml` |
+| Windows portable | `gpu-warden.toml` next to the exe |
+| Linux | `/etc/gpu-warden/config.toml` |
 
 Windows and Omarchy installs update themselves, see [updates](docs/updates.md). AUR and Scoop installs update through their package manager.
 

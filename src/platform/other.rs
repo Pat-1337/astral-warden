@@ -22,12 +22,16 @@ impl Host for Console {
     }
 }
 
+pub fn migrate(_: Option<&str>) -> bool {
+    false
+}
+
 pub fn open_device(_: &Config) -> Result<Device, String> {
     Err("hardware access needs Windows or Linux; set `simulate` in the config to dry-run".into())
 }
 
 pub fn single_instance() -> Result<Lock, String> {
-    unix::lock(&[std::env::temp_dir().join("astral-warden.lock")])
+    unix::lock(&[std::env::temp_dir().join("gpu-warden.lock")])
 }
 
 pub fn run(warden: Warden, cfg: &Config, _: &Path, _: bool) -> Result<(), String> {

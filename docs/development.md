@@ -37,7 +37,7 @@ export PATH="$(dirname "$(rustup which rustc)"):$PATH"
 
 ## Windows resources
 
-`build.rs` turns `assets/icon.ico` into a `.res` file that is linked into the `.exe`, with no `rc.exe` needed. The `.res` also includes version info (shown in Task Manager as "Astral Warden") and an application manifest (Per-Monitor-V2 DPI, Common Controls v6, `asInvoker`).
+`build.rs` turns `assets/icon.ico` into a `.res` file that is linked into the `.exe`, with no `rc.exe` needed. The `.res` also includes version info (shown in Task Manager as "GPU Warden") and an application manifest (Per-Monitor-V2 DPI, Common Controls v6, `asInvoker`).
 
 `assets/icon.ico` holds PNG frames from 16 to 256 px, rendered from the same geometry as `assets/icon.svg`. The status variants `icon-warn.svg` and `icon-crit.svg` only swap the colours.
 
@@ -68,13 +68,13 @@ export PATH="$(dirname "$(rustup which rustc)"):$PATH"
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds:
 
-- `astral-warden-<tag>-windows-x86_64-setup.exe` (installer build, MSVC)
-- `astral-warden-<tag>-windows-x86_64-portable.zip` (`--features portable`)
-- `astral-warden-<tag>-windows-x86_64.zip` (installer build for 0.8.0's updater)
-- `astral-warden-<tag>-linux-x86_64-{systemd,openrc,runit}.tar.gz` (glibc 2.17+)
-- `astral-warden-<tag>-linux-x86_64-omarchy.tar.gz` (built with `--features omarchy`, systemd)
+- `gpu-warden-<tag>-windows-x86_64-setup.exe` (installer build, MSVC)
+- `gpu-warden-<tag>-windows-x86_64-portable.zip` (`--features portable`)
+- `gpu-warden-<tag>-linux-x86_64-{systemd,openrc,runit}.tar.gz` (glibc 2.17+)
+- `gpu-warden-<tag>-linux-x86_64-omarchy.tar.gz` (built with `--features omarchy`, systemd)
 - `SHA256SUMS`
-- `astral-warden.json` (Scoop manifest)
+- `gpu-warden.json` (Scoop manifest)
+- copies under the old name, Astral Warden, for older updaters (see [packaging](packaging.md#windows-release-files))
 
 If the AUR secrets are set, it also updates the AUR package. See [packaging](packaging.md).
 

@@ -9,11 +9,11 @@ const LANG_EN_US: u16 = 0x0409;
 const MOVEABLE_DISCARDABLE: u16 = 0x1010;
 const MOVEABLE_PURE_DISCARDABLE: u16 = 0x1030;
 const MOVEABLE_PURE: u16 = 0x0030;
-const NAME: &str = "Astral Warden";
+const NAME: &str = "GPU Warden";
 
 const MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="AstralWarden" version="@VERSION@"/>
+  <assemblyIdentity type="win32" name="GPUWarden" version="@VERSION@"/>
   <dependency>
     <dependentAssembly>
       <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0" processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
@@ -120,9 +120,9 @@ fn version_info() -> Vec<u8> {
         ("CompanyName", "Pat-1337"),
         ("FileDescription", NAME),
         ("FileVersion", version.as_str()),
-        ("InternalName", "astral-warden"),
+        ("InternalName", "gpu-warden"),
         ("LegalCopyright", "MIT License"),
-        ("OriginalFilename", "astral-warden.exe"),
+        ("OriginalFilename", "gpu-warden.exe"),
         ("ProductName", NAME),
         ("ProductVersion", version.as_str()),
     ]

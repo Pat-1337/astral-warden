@@ -96,7 +96,7 @@ Each sample is graded:
 
 The power cap is released when the process exits normally (Exit, service stop, or logoff), so a stopped watchdog doesn't leave the card throttled. Shutdown is the exception: the cap stays.
 
-The limit saved before capping is also written to a state file (`/run/astral-warden.power-cap`, or `C:\ProgramData\astral-warden\power-cap.state`). If the process is killed while capped, the next start finds the cap still in place and restores the previous limit. A reboot clears both the cap and, on Linux, the file. On Windows, a stale file is ignored because the limit no longer matches.
+The limit saved before capping is also written to a state file (`/run/gpu-warden.power-cap`, or `C:\ProgramData\gpu-warden\power-cap.state`). If the process is killed while capped, the next start finds the cap still in place and restores the previous limit. A reboot clears both the cap and, on Linux, the file. On Windows, a stale file is ignored because the limit no longer matches.
 
 When there are several GPUs, NVML is matched by PCI IDs and bus number.
 
@@ -107,4 +107,4 @@ When there are several GPUs, NVML is matched by PCI IDs and bus number.
 - No disk writes during normal operation. See [Log](install.md#log).
 - Each sample is one 24-byte I2C transaction, or one 100-byte serial read for a WireView.
 - The binary is about 0.7 MB, with no runtime dependencies beyond the NVIDIA driver (and glibc on Linux). A WireView needs no driver at all.
-- Only one instance runs: a `Global\AstralWarden` mutex on Windows, an `flock` on `/run/lock/astral-warden.lock` on Linux.
+- Only one instance runs: a `Global\GPUWarden` mutex on Windows, an `flock` on `/run/lock/gpu-warden.lock` on Linux.

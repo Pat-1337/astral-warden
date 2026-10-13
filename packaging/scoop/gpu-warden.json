@@ -1,0 +1,25 @@
+{
+    "version": "@VERSION@",
+    "description": "Per-pin 12V-2x6 watchdog for ASUS ROG Astral and Matrix GPUs and the WireView Pro II",
+    "homepage": "https://github.com/Pat-1337/gpu-warden",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/Pat-1337/gpu-warden/releases/download/v@VERSION@/gpu-warden-v@VERSION@-windows-x86_64-portable.zip",
+            "hash": "@HASH@",
+            "extract_dir": "gpu-warden-v@VERSION@-windows-x86_64-portable"
+        }
+    },
+    "bin": "gpu-warden.exe",
+    "persist": [
+        "gpu-warden.toml",
+        "gpu-warden.log"
+    ],
+    "shortcuts": [
+        [
+            "gpu-warden.exe",
+            "GPU Warden"
+        ]
+    ],
+    "notes": "Start GPU Warden from the Start menu, then tick 'Start at logon' in its tray menu."
+}

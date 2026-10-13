@@ -20,11 +20,21 @@ const I2C_SLAVE: u64 = 0x0703;
 const I2C_SMBUS: u64 = 0x0720;
 const I2C_SMBUS_READ: u8 = 1;
 const I2C_SMBUS_I2C_BLOCK_DATA: u32 = 8;
-const BIN: &str = "/usr/local/bin/astral-warden";
-const RUNIT_SV: &str = "/etc/sv/astral-warden";
+const BIN: &str = "/usr/local/bin/gpu-warden";
+const RUNIT_SV: &str = "/etc/sv/gpu-warden";
 const RUNSVDIRS: &[&str] = &["/var/service", "/etc/runit/runsvdir/default", "/run/runit/service"];
-const MODULES: &str = "/etc/modules-load.d/astral-warden.conf";
-const UDEV: &str = "/etc/udev/rules.d/70-astral-warden.rules";
+const MODULES: &str = "/etc/modules-load.d/gpu-warden.conf";
+const UDEV: &str = "/etc/udev/rules.d/70-gpu-warden.rules";
+const LEGACY_BIN: &str = "/usr/local/bin/astral-warden";
+const LEGACY_CONFIG: &str = "/etc/astral-warden/config.toml";
+const LEGACY_FILES: &[&str] = &[
+    "/etc/modules-load.d/astral-warden.conf",
+    "/etc/udev/rules.d/70-astral-warden.rules",
+    "/run/astral-warden.power-cap",
+    "/run/lock/astral-warden.lock",
+    "/var/log/astral-warden.log",
+];
+const LEGACY_DIRS: &[&str] = &["/etc/astral-warden", "/var/lib/astral-warden", "/run/astral-warden"];
 
 #[repr(C)]
 struct SmbusIoctl {
@@ -164,8 +174,8 @@ pub fn open_device(cfg: &Config) -> Result<Device, String> {
 
 pub fn single_instance() -> Result<Lock, String> {
     unix::lock(&[
-        PathBuf::from("/run/lock/astral-warden.lock"),
-        std::env::temp_dir().join("astral-warden.lock"),
+        PathBuf::from("/run/lock/gpu-warden.lock"),
+        std::env::temp_dir().join("gpu-warden.lock"),
     ])
 }
 
@@ -242,7 +252,7 @@ impl Host for Desktop {
     }
 
     fn shutdown(&mut self, reason: &str) -> Result<(), String> {
-        let _ = spawn_quiet("wall", &[&format!("astral-warden: {reason}")]);
+        let _ = spawn_quiet("wall", &[&format!("gpu-warden: {reason}")]);
 
         spawn_quiet("systemctl", &["poweroff"])
             .or_else(|_| spawn_quiet("shutdown", &["-P", "now"]))
@@ -299,28 +309,25 @@ impl Init {
     fn service(self) -> (&'static str, &'static str) {
         match self {
             Self::Systemd => (
-                "/etc/systemd/system/astral-warden.service",
-                include_str!("../../../init/astral-warden.service"),
+                "/etc/systemd/system/gpu-warden.service",
+                include_str!("../../../init/gpu-warden.service"),
             ),
             Self::OpenRc => (
-                "/etc/init.d/astral-warden",
-                include_str!("../../../init/astral-warden.openrc"),
+                "/etc/init.d/gpu-warden",
+                include_str!("../../../init/gpu-warden.openrc"),
             ),
-            Self::Runit => (
-                "/etc/sv/astral-warden/run",
-                include_str!("../../../init/astral-warden.runit"),
-            ),
+            Self::Runit => ("/etc/sv/gpu-warden/run", include_str!("../../../init/gpu-warden.runit")),
         }
     }
 
     fn enable(self) -> Result<(), String> {
         match self {
             Self::Systemd => spawn_quiet("systemctl", &["daemon-reload"])
-                .and_then(|()| spawn_quiet("systemctl", &["enable", "astral-warden.service"]))
-                .and_then(|()| spawn_quiet("systemctl", &["restart", "astral-warden.service"])),
+                .and_then(|()| spawn_quiet("systemctl", &["enable", "gpu-warden.service"]))
+                .and_then(|()| spawn_quiet("systemctl", &["restart", "gpu-warden.service"])),
 
-            Self::OpenRc => spawn_quiet("rc-update", &["add", "astral-warden", "default"])
-                .and_then(|()| spawn_quiet("rc-service", &["astral-warden", "restart"])),
+            Self::OpenRc => spawn_quiet("rc-update", &["add", "gpu-warden", "default"])
+                .and_then(|()| spawn_quiet("rc-service", &["gpu-warden", "restart"])),
 
             Self::Runit => {
                 let dir = RUNSVDIRS
@@ -328,7 +335,7 @@ impl Init {
                     .find(|d| Path::new(d).is_dir())
                     .ok_or("no runsvdir found")?;
 
-                let link = Path::new(dir).join("astral-warden");
+                let link = Path::new(dir).join("gpu-warden");
                 match std::os::unix::fs::symlink(RUNIT_SV, &link) {
                     Ok(()) => Ok(()),
                     Err(e) if e.kind() == ErrorKind::AlreadyExists => {
@@ -340,17 +347,49 @@ impl Init {
         }
     }
 
-    fn disable(self) {
+    fn legacy_unit(self) -> &'static str {
         match self {
-            Self::Systemd => drop(spawn_quiet("systemctl", &["disable", "--now", "astral-warden.service"])),
+            Self::Systemd => "/etc/systemd/system/astral-warden.service",
+            Self::OpenRc => "/etc/init.d/astral-warden",
+            Self::Runit => "/etc/sv/astral-warden",
+        }
+    }
+
+    fn stop_legacy(self) {
+        let script = match self {
+            Self::Systemd => {
+                let _ = spawn_quiet("systemctl", &["disable", "astral-warden.service"]);
+                let _ = remove(self.legacy_unit());
+                let _ = spawn_quiet("systemctl", &["daemon-reload"]);
+                let _ = spawn_quiet("systemctl", &["stop", "--no-block", "astral-warden.service"]);
+                return;
+            }
 
             Self::OpenRc => {
-                let _ = spawn_quiet("rc-service", &["astral-warden", "stop"]);
                 let _ = spawn_quiet("rc-update", &["del", "astral-warden", "default"]);
+                "rc-service astral-warden stop; rm -f /etc/init.d/astral-warden".to_owned()
             }
 
             Self::Runit => {
-                for link in RUNSVDIRS.iter().map(|d| Path::new(d).join("astral-warden")) {
+                let links: Vec<_> = RUNSVDIRS.iter().map(|d| format!("{d}/astral-warden")).collect();
+                format!("rm -f {}; sleep 6; rm -rf /etc/sv/astral-warden", links.join(" "))
+            }
+        };
+
+        detach(Command::new("setsid").args(["sh", "-c", &script]));
+    }
+
+    fn disable(self) {
+        match self {
+            Self::Systemd => drop(spawn_quiet("systemctl", &["disable", "--now", "gpu-warden.service"])),
+
+            Self::OpenRc => {
+                let _ = spawn_quiet("rc-service", &["gpu-warden", "stop"]);
+                let _ = spawn_quiet("rc-update", &["del", "gpu-warden", "default"]);
+            }
+
+            Self::Runit => {
+                for link in RUNSVDIRS.iter().map(|d| Path::new(d).join("gpu-warden")) {
                     let _ = spawn_quiet("sv", &["down", &link.to_string_lossy()]);
                     let _ = fs::remove_file(link);
                 }
@@ -427,7 +466,55 @@ pub fn install(config: &Path, _: bool) -> Result<(), String> {
     #[cfg(feature = "omarchy")]
     crate::omarchy::for_sudo_user(BIN, "install");
 
+    retire_legacy(init);
     Ok(())
+}
+
+fn retire_legacy(init: Init) {
+    let unit = init.legacy_unit();
+    if ![LEGACY_BIN, LEGACY_CONFIG, unit].iter().any(|p| Path::new(p).exists()) {
+        return;
+    }
+
+    #[cfg(feature = "omarchy")]
+    crate::omarchy::migrate_widgets(BIN);
+
+    for suffix in ["", ".old", ".new", ".failed", ".skip"] {
+        let _ = remove(&format!("{LEGACY_BIN}{suffix}"));
+    }
+    for file in LEGACY_FILES {
+        let _ = remove(file);
+    }
+    for dir in LEGACY_DIRS {
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    let _ = spawn_quiet("udevadm", &["control", "--reload"]);
+    println!("removed Astral Warden, the old name of GPU Warden");
+    init.stop_legacy();
+}
+
+pub fn migrate(_: Option<&str>) -> bool {
+    let legacy = std::env::current_exe().is_ok_and(|exe| exe == Path::new(LEGACY_BIN));
+    if !legacy || unsafe { libc::geteuid() } != 0 {
+        return false;
+    }
+
+    let config = config::default_path();
+    if !config.exists()
+        && let Some(dir) = config.parent()
+    {
+        let _ = fs::create_dir_all(dir);
+        let _ = fs::copy(LEGACY_CONFIG, &config);
+    }
+
+    match install(&config, false) {
+        Ok(()) => true,
+        Err(e) => {
+            crate::log!("moving to GPU Warden failed: {e}");
+            false
+        }
+    }
 }
 
 pub fn uninstall(_: bool) -> Result<(), String> {
@@ -451,7 +538,7 @@ pub fn uninstall(_: bool) -> Result<(), String> {
     for dir in [
         config::default_path(),
         config::note_path(),
-        PathBuf::from("/run/astral-warden/status.json"),
+        PathBuf::from("/run/gpu-warden/status.json"),
     ] {
         if let Some(dir) = dir.parent() {
             let _ = fs::remove_dir_all(dir);
@@ -462,6 +549,7 @@ pub fn uninstall(_: bool) -> Result<(), String> {
         let _ = spawn_quiet("systemctl", &["daemon-reload"]);
     }
 
+    retire_legacy(init);
     println!("uninstalled; nothing is left behind");
     Ok(())
 }

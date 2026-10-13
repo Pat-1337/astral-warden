@@ -1,9 +1,0 @@
-post_install() {
-  echo 'Load i2c-dev and start the watchdog:'
-  echo '  sudo modprobe i2c-dev'
-  echo '  sudo systemctl enable --now astral-warden'
-}
-
-post_upgrade() {
-  echo 'Restart to use the new version: sudo systemctl restart astral-warden'
-}

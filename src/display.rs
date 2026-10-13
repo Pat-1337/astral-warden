@@ -11,7 +11,7 @@ pub fn hex() -> bool {
 }
 
 pub fn app() -> &'static str {
-    if hex() { "4STR4L W4RD3N" } else { "Astral Warden" }
+    if hex() { "4STR4L W4RD3N" } else { "GPU Warden" }
 }
 
 pub fn amps(value: f32, places: usize) -> String {

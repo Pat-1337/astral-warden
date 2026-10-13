@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn reads_hwmon() {
-        let dir = std::env::temp_dir().join(format!("astral-warden-hwmon-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("gpu-warden-hwmon-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
 
         for pin in 0..PINS {

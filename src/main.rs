@@ -30,11 +30,12 @@ use std::time::Duration;
 use warden::Warden;
 
 #[cfg(not(updater))]
-const USAGE: &str = "astral-warden [run|status|install|uninstall|config] [--config <path>] [--wait] [--silent] [--background] [--watch]";
+const USAGE: &str =
+    "gpu-warden [run|status|install|uninstall|config] [--config <path>] [--wait] [--silent] [--background] [--watch]";
 #[cfg(all(updater, not(feature = "omarchy")))]
-const USAGE: &str = "astral-warden [run|status|install|uninstall|config|auto-update <on|off>] [--config <path>] [--wait] [--silent] [--background] [--watch]";
+const USAGE: &str = "gpu-warden [run|status|install|uninstall|config|auto-update <on|off>] [--config <path>] [--wait] [--silent] [--background] [--watch]";
 #[cfg(all(updater, feature = "omarchy"))]
-const USAGE: &str = "astral-warden [run|status|install|uninstall|config|auto-update <on|off>|omarchy <install|uninstall|update|watch>] [--config <path>] [--wait] [--silent] [--background] [--watch]";
+const USAGE: &str = "gpu-warden [run|status|install|uninstall|config|auto-update <on|off>|omarchy <install|uninstall|update|watch>] [--config <path>] [--wait] [--silent] [--background] [--watch]";
 const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 enum Command {
@@ -82,7 +83,7 @@ fn parse() -> Result<Args, String> {
                 command = match args.next().as_deref() {
                     Some("on") => Command::AutoUpdate(true),
                     Some("off") => Command::AutoUpdate(false),
-                    _ => return Err("usage: astral-warden auto-update <on|off>".into()),
+                    _ => return Err("usage: gpu-warden auto-update <on|off>".into()),
                 }
             }
             "--silent" => silent = true,
@@ -96,7 +97,7 @@ fn parse() -> Result<Args, String> {
                 config = std::path::absolute(&path).map_err(|e| format!("{}: {e}", path.display()))?;
                 explicit = true;
             }
-            "-V" | "--version" => command = Command::Print(concat!("astral-warden ", env!("CARGO_PKG_VERSION"))),
+            "-V" | "--version" => command = Command::Print(version()),
             "-h" | "--help" => command = Command::Print(USAGE),
             other => return Err(format!("unknown argument {other:?}\n{USAGE}")),
         }
@@ -112,6 +113,19 @@ fn parse() -> Result<Args, String> {
         silent,
         updated,
     })
+}
+
+// Updaters up to 0.9.0 stage binaries named astral-warden and expect that name back.
+fn version() -> &'static str {
+    let legacy = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.file_name()?.to_string_lossy().starts_with("astral-warden")))
+        .unwrap_or(false);
+
+    match legacy {
+        true => concat!("astral-warden ", env!("CARGO_PKG_VERSION")),
+        false => concat!("gpu-warden ", env!("CARGO_PKG_VERSION")),
+    }
 }
 
 fn secret_name(device: &Device) -> String {
@@ -239,6 +253,10 @@ fn lock(wait: bool) -> Result<platform::Lock, String> {
 fn run(cfg: Config, config_path: &Path, wait: bool, silent: bool, updated: Option<String>) -> Result<(), String> {
     #[cfg(windows)]
     if platform::adopt(config_path) {
+        return Ok(());
+    }
+
+    if platform::migrate(updated.as_deref()) {
         return Ok(());
     }
 
