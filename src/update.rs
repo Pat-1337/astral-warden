@@ -437,7 +437,10 @@ mod tests {
 
     #[test]
     fn runs_absolute_paths() {
-        assert_eq!(run(Path::new("/bin/echo"), &["gpu-warden 1.2.3"]).unwrap(), "gpu-warden 1.2.3");
+        assert_eq!(
+            run(Path::new("/bin/echo"), &["gpu-warden 1.2.3"]).unwrap(),
+            "gpu-warden 1.2.3"
+        );
         assert!(run(Path::new("/bin/false"), &[]).is_err());
     }
 }
