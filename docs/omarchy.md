@@ -31,6 +31,10 @@ Hover for every pin, total power, balance, board power, power cap, and shutdown 
 
 Notifications go through `notify-send`, which the Omarchy shell shows.
 
+## Updates
+
+The Omarchy build updates itself and refreshes the bar widget for every user who has it. See [updates](updates.md).
+
 ## How it works
 
 The service runs as root and writes `/run/astral-warden/status.json` at most once a second, and right away when the level changes. It writes to a temporary file and renames it, so readers never see a partial file. The file is removed when the service stops.

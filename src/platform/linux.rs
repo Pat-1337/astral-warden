@@ -165,7 +165,7 @@ impl Desktop {
     }
 }
 
-fn user_name(uid: libc::uid_t) -> Option<String> {
+pub fn user_name(uid: libc::uid_t) -> Option<String> {
     let mut pwd = unsafe { std::mem::zeroed::<libc::passwd>() };
     let mut buf = [0 as libc::c_char; 1024];
     let mut out = std::ptr::null_mut();
@@ -240,7 +240,13 @@ pub fn run(warden: Warden, cfg: &Config, _: &Path, _: bool) -> Result<(), String
     #[cfg(feature = "omarchy")]
     let on_tick = {
         let mut publisher = crate::omarchy::Publisher::new();
-        move |w: &Warden| publisher.tick(w)
+        move |w: &Warden| {
+            publisher.tick(w);
+
+            if crate::update::due(w) {
+                unix::stop();
+            }
+        }
     };
 
     #[cfg(not(feature = "omarchy"))]

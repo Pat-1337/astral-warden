@@ -44,6 +44,7 @@ pub struct Warden {
     last_error: Option<String>,
     alarm_at: Option<Instant>,
     note: Option<String>,
+    updated: Option<String>,
 }
 
 fn take_note() -> Option<String> {
@@ -92,6 +93,7 @@ impl Warden {
             last_error: None,
             alarm_at: None,
             note: take_note(),
+            updated: None,
         }
     }
 
@@ -124,6 +126,15 @@ impl Warden {
             display::app().into(),
             format!("{} found, but its pins can't be read.", self.name),
         )
+    }
+
+    pub fn updated_from(&mut self, old: String) {
+        self.updated = Some(old);
+    }
+
+    #[cfg_attr(not(updater), allow(dead_code))]
+    pub fn settled(&self) -> bool {
+        self.guard.phase() == Phase::Normal && !self.cap.engaged()
     }
 
     #[cfg(feature = "omarchy")]
@@ -243,6 +254,12 @@ impl Warden {
             };
             self.emit(host, Severity::Warn, "Previous shutdown", &body);
             host.alert(display::app(), &body);
+        }
+
+        if let Some(old) = self.updated.take() {
+            let title = format!("{} updated", display::app());
+            let body = format!("Now running {} (was {old}).", env!("CARGO_PKG_VERSION"));
+            self.emit(host, Severity::Info, &title, &body);
         }
 
         if self.guard.phase() == Phase::Halted {

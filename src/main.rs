@@ -12,6 +12,10 @@ mod omarchy;
 mod platform;
 mod power;
 mod sensor;
+#[cfg(updater)]
+mod sha256;
+#[cfg(updater)]
+mod update;
 mod warden;
 
 use config::Config;
@@ -48,12 +52,14 @@ struct Args {
     background: bool,
     watch: bool,
     silent: bool,
+    updated: Option<String>,
 }
 
 fn parse() -> Result<Args, String> {
     let mut command = Command::Run;
     let (mut config, mut explicit, mut wait, mut background, mut watch, mut silent) =
         (config::default_path(), false, false, false, false, false);
+    let mut updated = None;
     let mut args = std::env::args().skip(1);
 
     while let Some(arg) = args.next() {
@@ -70,6 +76,7 @@ fn parse() -> Result<Args, String> {
             "--background" => background = true,
             "--watch" => watch = true,
             "--secret" => display::enable_hex(),
+            "--updated" => updated = Some(args.next().ok_or("--updated needs a version")?),
             "-c" | "--config" => {
                 let path = PathBuf::from(args.next().ok_or("--config needs a path")?);
                 config = std::path::absolute(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -89,6 +96,7 @@ fn parse() -> Result<Args, String> {
         background,
         watch,
         silent,
+        updated,
     })
 }
 
@@ -214,7 +222,7 @@ fn lock(wait: bool) -> Result<platform::Lock, String> {
     }
 }
 
-fn run(cfg: Config, config_path: &Path, wait: bool, silent: bool) -> Result<(), String> {
+fn run(cfg: Config, config_path: &Path, wait: bool, silent: bool, updated: Option<String>) -> Result<(), String> {
     let _lock = lock(wait)?;
     let Device {
         name,
@@ -228,7 +236,27 @@ fn run(cfg: Config, config_path: &Path, wait: bool, silent: bool) -> Result<(), 
     let mut cap = PowerCap::new(pci, bus, cfg.power_cap.percent, config::state_path());
     cap.resume();
 
-    platform::run(Warden::new(name, cfg.clone(), sensor, cap), &cfg, config_path, silent)
+    let mut warden = Warden::new(name, cfg.clone(), sensor, cap);
+    if let Some(old) = updated {
+        log!("updated from {old}");
+        warden.updated_from(old);
+
+        #[cfg(all(feature = "omarchy", target_os = "linux"))]
+        omarchy::refresh_widgets();
+    }
+
+    #[cfg(updater)]
+    update::start(cfg.auto_update && cfg.simulate.is_none());
+
+    platform::run(warden, &cfg, config_path, silent)
+}
+
+#[cfg(updater)]
+use update::after_run;
+
+#[cfg(not(updater))]
+fn after_run(result: Result<(), String>, _: bool) -> Result<(), String> {
+    result
 }
 
 fn main() -> ExitCode {
@@ -239,7 +267,11 @@ fn main() -> ExitCode {
         Command::Uninstall => platform::uninstall(args.background),
         Command::Status => Config::load(&args.config, args.explicit).and_then(|cfg| status(&cfg, args.watch)),
         Command::Run => {
-            Config::load(&args.config, args.explicit).and_then(|cfg| run(cfg, &args.config, args.wait, args.silent))
+            let updated = args.updated.is_some();
+            let result = Config::load(&args.config, args.explicit)
+                .and_then(|cfg| run(cfg, &args.config, args.wait, args.silent, args.updated));
+
+            after_run(result, updated)
         }
         #[cfg(all(feature = "omarchy", target_os = "linux"))]
         Command::Omarchy(action) => action.run(),

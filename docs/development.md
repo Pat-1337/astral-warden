@@ -54,6 +54,8 @@ export PATH="$(dirname "$(rustup which rustc)"):$PATH"
 | `src/display.rs` | Number and name formatting for everything shown to users |
 | `src/platform/windows/` | NVAPI I2C, tray, task install, shutdown |
 | `src/platform/linux.rs` | sysfs detection, i2c-dev, init install, poweroff |
+| `src/update.rs` | Self-update for Windows and Omarchy builds (`cfg(updater)`, set by `build.rs`) |
+| `src/sha256.rs` | SHA-256 for checking downloaded releases |
 | `src/omarchy.rs` | `omarchy` feature: status file, widget install, `omarchy watch` |
 | `omarchy/` | Omarchy shell bar widget, embedded at build time |
 | `init/` | Service templates, embedded at build time |

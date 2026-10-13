@@ -11,6 +11,7 @@ recover_secs = 10
 sensor_fail_samples = 6
 shutdown = true
 alarm = true
+auto_update = true
 
 [pin_amps]
 warn = 9.5
@@ -38,6 +39,7 @@ restore_after_secs = 120
 | `sensor_fail_samples` | 6 | Consecutive failed reads before "sensor lost". |
 | `shutdown` | true | `false` keeps notifying and capping but never powers off. |
 | `alarm` | true | Repeating alarm sound during a warning (every 2 s) and on critical. |
+| `auto_update` | true | Windows and Omarchy builds: install new releases on their own. `false` opts out. See [updates](updates.md). |
 | `power_cap.enabled` | true | Lower the GPU power limit on a warning or sensor loss. |
 | `power_cap.percent` | 80 | Cap as a percentage of the board's default limit (50–100), clamped to what the board allows. |
 | `power_cap.restore_after_secs` | 120 | Clean time needed before the previous limit is restored. |

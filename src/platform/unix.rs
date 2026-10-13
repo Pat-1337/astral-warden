@@ -28,6 +28,11 @@ pub fn lock(candidates: &[PathBuf]) -> Result<Lock, String> {
     }
 }
 
+#[cfg_attr(not(updater), allow(dead_code))]
+pub fn stop() {
+    STOP.store(true, Ordering::Relaxed);
+}
+
 extern "C" fn on_signal(_: libc::c_int) {
     STOP.store(true, Ordering::Relaxed);
 }

@@ -196,6 +196,13 @@ fn resource(ico: &[u8]) -> Vec<u8> {
 
 fn main() {
     println!("cargo:rerun-if-changed={ICON}");
+    println!("cargo::rustc-check-cfg=cfg(updater)");
+
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let omarchy = std::env::var_os("CARGO_FEATURE_OMARCHY").is_some();
+    if os == "windows" || (os == "linux" && omarchy) {
+        println!("cargo::rustc-cfg=updater");
+    }
 
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;

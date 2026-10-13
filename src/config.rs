@@ -30,6 +30,7 @@ pub struct Config {
     pub sensor_fail_samples: u32,
     pub shutdown: bool,
     pub alarm: bool,
+    pub auto_update: bool,
     pub power_cap: PowerCap,
     pub simulate: Option<PathBuf>,
 }
@@ -57,6 +58,7 @@ impl Default for Config {
             sensor_fail_samples: 6,
             shutdown: true,
             alarm: true,
+            auto_update: true,
             power_cap: PowerCap::default(),
             simulate: None,
         }

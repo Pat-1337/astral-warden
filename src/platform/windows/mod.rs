@@ -398,7 +398,7 @@ fn show_menu(hwnd: HWND) {
 unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_TIMER if wparam == POLL_TIMER => {
-            with_app(|app| {
+            let restart = with_app(|app| {
                 app.warden.tick(&mut app.tray);
                 app.refresh();
 
@@ -406,7 +406,13 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                     let (severity, title, body) = app.warden.greeting();
                     app.tray.balloon(severity, &title, &body);
                 }
+
+                crate::update::due(&app.warden)
             });
+
+            if restart == Some(true) {
+                unsafe { DestroyWindow(hwnd) };
+            }
             0
         }
 

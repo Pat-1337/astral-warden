@@ -23,6 +23,7 @@ const WIDGET: &str = include_str!("../omarchy/BarWidget.qml");
 pub enum Action {
     Install,
     Uninstall,
+    Refresh,
     Watch,
 }
 
@@ -31,6 +32,7 @@ impl Action {
         match arg.as_deref() {
             Some("install") => Ok(Self::Install),
             Some("uninstall") => Ok(Self::Uninstall),
+            Some("refresh") => Ok(Self::Refresh),
             Some("watch") => Ok(Self::Watch),
             _ => Err("usage: astral-warden omarchy [install|uninstall|watch]".into()),
         }
@@ -40,6 +42,7 @@ impl Action {
         match self {
             Self::Install => install(),
             Self::Uninstall => uninstall(),
+            Self::Refresh => refresh(),
             Self::Watch => watch(),
         }
     }
@@ -189,6 +192,7 @@ fn watch() -> Result<(), String> {
 
 fn plugin_dir() -> Result<PathBuf, String> {
     let config = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
         .ok_or("HOME is not set")?;
@@ -206,12 +210,7 @@ fn require_user() -> Result<(), String> {
 fn install() -> Result<(), String> {
     require_user()?;
     let dir = plugin_dir()?;
-    let manifest = MANIFEST.replace("@VERSION@", env!("CARGO_PKG_VERSION"));
-
-    fs::create_dir_all(&dir)
-        .and_then(|()| fs::write(dir.join("manifest.json"), manifest))
-        .and_then(|()| fs::write(dir.join("BarWidget.qml"), WIDGET))
-        .map_err(|e| format!("{}: {e}", dir.display()))?;
+    write_plugin(&dir)?;
 
     let _ = spawn_quiet("omarchy-shell", &["shell", "rescanPlugins"]);
     spawn_quiet("omarchy", &["plugin", "enable", PLUGIN_ID, "--section", "right"])
@@ -223,6 +222,50 @@ fn install() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn write_plugin(dir: &Path) -> Result<(), String> {
+    let manifest = MANIFEST.replace("@VERSION@", env!("CARGO_PKG_VERSION"));
+
+    fs::create_dir_all(dir)
+        .and_then(|()| fs::write(dir.join("manifest.json"), manifest))
+        .and_then(|()| fs::write(dir.join("BarWidget.qml"), WIDGET))
+        .map_err(|e| format!("{}: {e}", dir.display()))
+}
+
+fn refresh() -> Result<(), String> {
+    require_user()?;
+    let dir = plugin_dir()?;
+
+    match dir.is_dir() {
+        true => write_plugin(&dir),
+        false => Ok(()),
+    }
+}
+
+pub fn refresh_widgets() {
+    use std::os::unix::fs::MetadataExt;
+
+    let (Ok(exe), Ok(homes)) = (std::env::current_exe(), fs::read_dir("/home")) else {
+        return;
+    };
+
+    for home in homes.flatten().map(|e| e.path()) {
+        let dir = home.join(".config/omarchy/plugins").join(PLUGIN_ID);
+        let Some(user) = fs::metadata(&dir)
+            .ok()
+            .and_then(|m| crate::platform::user_name(m.uid()))
+        else {
+            continue;
+        };
+
+        let home_env = format!("HOME={}", home.display());
+        let bin = exe.to_string_lossy();
+        let _ = spawn_quiet(
+            "runuser",
+            &["-u", &user, "--", "env", &home_env, &bin, "omarchy", "refresh"],
+        );
+    }
 }
 
 fn uninstall() -> Result<(), String> {

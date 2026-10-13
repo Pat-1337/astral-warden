@@ -47,4 +47,6 @@ astral-warden status --watch
 | Windows | `C:\ProgramData\astral-warden\config.toml` |
 | Linux | `/etc/astral-warden/config.toml` |
 
+Windows and Omarchy installs update themselves, see [updates](docs/updates.md). AUR and Scoop installs update through their package manager.
+
 More in [docs](docs/).
