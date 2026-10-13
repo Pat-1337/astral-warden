@@ -12,7 +12,19 @@ use std::time::Duration;
 const REPO: &str = "https://github.com/Pat-1337/gpu-warden";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const NETWORK_WAIT: Duration = Duration::from_secs(30);
-const CURL: &[&str] = &["-fsSL", "--proto", "=https", "--retry", "3", "--retry-connrefused"];
+const TOOL_TIMEOUT: Duration = Duration::from_secs(300);
+const CURL: &[&str] = &[
+    "-fsSL",
+    "--proto",
+    "=https",
+    "--retry",
+    "3",
+    "--retry-connrefused",
+    "--connect-timeout",
+    "20",
+    "--max-time",
+    "240",
+];
 
 struct Asset {
     stem: &'static str,
@@ -53,6 +65,7 @@ const MANAGED: &str = "This copy is updated by its package manager.";
 
 static READY: AtomicBool = AtomicBool::new(false);
 static CHECKING: AtomicBool = AtomicBool::new(false);
+static MANUAL: AtomicBool = AtomicBool::new(false);
 static NOTICED: AtomicBool = AtomicBool::new(false);
 static STAGED: Mutex<Option<(String, PathBuf)>> = Mutex::new(None);
 static NOTICE: Mutex<Option<(Severity, String)>> = Mutex::new(None);
@@ -144,10 +157,11 @@ fn spawn_check(manual: bool) {
         return;
     }
 
+    if manual {
+        MANUAL.store(true, Ordering::Release);
+    }
+
     if CHECKING.swap(true, Ordering::AcqRel) {
-        if manual {
-            notice(Severity::Info, "Already checking for updates.".into());
-        }
         return;
     }
 
@@ -158,9 +172,16 @@ fn spawn_check(manual: bool) {
     };
 
     std::thread::spawn(move || {
-        if !manual {
-            std::thread::sleep(NETWORK_WAIT);
+        let second = Duration::from_secs(1);
+        for _ in 0..NETWORK_WAIT.as_secs() {
+            if MANUAL.load(Ordering::Acquire) {
+                break;
+            }
+            std::thread::sleep(second);
         }
+
+        let manual = MANUAL.load(Ordering::Acquire);
+        let skip = skip.filter(|_| !manual);
 
         match check(skip.as_deref()) {
             Ok(Some((tag, binary))) => {
@@ -184,6 +205,7 @@ fn spawn_check(manual: bool) {
             }
         }
 
+        MANUAL.store(false, Ordering::Release);
         CHECKING.store(false, Ordering::Release);
     });
 }
@@ -215,29 +237,50 @@ fn work_dir() -> PathBuf {
     return PathBuf::from("/var/lib/gpu-warden/update");
 }
 
-fn tool(program: &str, args: &[&str]) -> Result<String, String> {
+fn system_tool(program: &str) -> PathBuf {
     #[cfg(windows)]
-    let program = &std::env::var_os("SystemRoot")
+    return std::env::var_os("SystemRoot")
         .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from)
         .join("System32")
         .join(format!("{program}.exe"));
 
+    #[cfg(not(windows))]
+    return PathBuf::from(program);
+}
+
+fn tool(program: &str, args: &[&str]) -> Result<String, String> {
+    run(&system_tool(program), args)
+}
+
+fn run(program: &Path, args: &[&str]) -> Result<String, String> {
     let mut cmd = Command::new(program);
-    cmd.args(args).stdin(Stdio::null());
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     #[cfg(windows)]
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
 
-    let out = cmd
-        .output()
-        .map_err(|e| format!("{}: {e}", Path::new(program).display()))?;
+    let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", program.display()))?;
+    let deadline = std::time::Instant::now() + TOOL_TIMEOUT;
+    while child.try_wait().map_err(|e| e.to_string())?.is_none() {
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("{}: timed out", program.display()));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
     let text = String::from_utf8_lossy(&out.stdout).trim().to_owned();
 
     match out.status.success() {
         true => Ok(text),
         false => Err(format!(
             "{}: {}",
-            Path::new(program).display(),
+            program.display(),
             String::from_utf8_lossy(&out.stderr).trim()
         )),
     }
@@ -306,7 +349,7 @@ fn stage(tag: &str) -> Result<PathBuf, String> {
         let _ = fs::set_permissions(&binary, fs::Permissions::from_mode(0o755));
     }
 
-    let version = tool(&binary.to_string_lossy(), &["--version"])?;
+    let version = run(&binary, &["--version"])?;
     if version != format!("gpu-warden {}", tag.trim_start_matches('v')) {
         return Err(format!("staged binary reports {version:?}"));
     }
@@ -385,5 +428,16 @@ fn relaunch(exe: &Path, updated_from: Option<&str>) -> Result<(), String> {
     {
         use std::os::unix::process::CommandExt;
         Err(format!("{}: {}", exe.display(), Command::new(exe).args(&args).exec()))
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runs_absolute_paths() {
+        assert_eq!(run(Path::new("/bin/echo"), &["gpu-warden 1.2.3"]).unwrap(), "gpu-warden 1.2.3");
+        assert!(run(Path::new("/bin/false"), &[]).is_err());
     }
 }
