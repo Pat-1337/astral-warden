@@ -11,6 +11,9 @@ astral-warden [command] [flags]
 | `install` | Install for autostart (logon task on Windows; systemd, OpenRC, or runit service on Linux). |
 | `uninstall` | Remove the autostart entry. The config is kept. |
 | `config` | Print the default config. |
+| `omarchy install` | `-omarchy` build only: add the bar widget for the current user. See [Omarchy](omarchy.md). |
+| `omarchy uninstall` | `-omarchy` build only: remove the bar widget. |
+| `omarchy watch` | `-omarchy` build only: show the service's readings live, without root. |
 
 | Flag | Does |
 |---|---|

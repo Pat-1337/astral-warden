@@ -4,6 +4,7 @@
 cargo build --release
 cargo clippy --release -- -D warnings
 cargo fmt --check
+cargo clippy --release --features omarchy -- -D warnings
 ```
 
 ## Dry run without hardware
@@ -53,6 +54,8 @@ export PATH="$(dirname "$(rustup which rustc)"):$PATH"
 | `src/display.rs` | Number and name formatting for everything shown to users |
 | `src/platform/windows/` | NVAPI I2C, tray, task install, shutdown |
 | `src/platform/linux.rs` | sysfs detection, i2c-dev, init install, poweroff |
+| `src/omarchy.rs` | `omarchy` feature: status file, widget install, `omarchy watch` |
+| `omarchy/` | Omarchy shell bar widget, embedded at build time |
 | `init/` | Service templates, embedded at build time |
 | `build.rs` | Windows icon, version info, and manifest resources |
 | `assets/` | Icon (SVG per level, multi-size ICO) |
@@ -63,6 +66,7 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds:
 
 - `astral-warden-<tag>-windows-x86_64.zip` (MSVC)
 - `astral-warden-<tag>-linux-x86_64-{systemd,openrc,runit}.tar.gz` (glibc 2.17+)
+- `astral-warden-<tag>-linux-x86_64-omarchy.tar.gz` (built with `--features omarchy`, systemd)
 - `SHA256SUMS`
 - `astral-warden.json` (Scoop manifest)
 

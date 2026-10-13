@@ -7,6 +7,10 @@ description = "Per-pin 12V-2x6 watchdog for ASUS ROG Astral GPUs"
 license = "MIT"
 publish = false
 
+[features]
+# Omarchy bar widget and status file, shipped only in the -omarchy release
+omarchy = []
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 toml = { version = "1", default-features = false, features = ["parse", "display", "serde", "std"] }

@@ -19,3 +19,5 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --release -- -D warnings
       - run: cargo build --release
+      - if: runner.os == 'Linux'
+        run: cargo clippy --release --features omarchy -- -D warnings

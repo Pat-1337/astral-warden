@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "pat-1337.astral-warden",
+  "name": "Astral Warden",
+  "version": "@VERSION@",
+  "author": "Pat-1337",
+  "license": "MIT",
+  "description": "Per-pin 12V-2x6 readings from the astral-warden service",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Astral Warden",
+    "description": "Hottest 12V-2x6 pin, with every pin in the tooltip",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 1
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 1,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 1
+      }
+    ]
+  }
+}

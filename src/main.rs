@@ -7,6 +7,8 @@ mod dylib;
 mod guard;
 mod hardware;
 mod log;
+#[cfg(all(feature = "omarchy", target_os = "linux"))]
+mod omarchy;
 mod platform;
 mod power;
 mod sensor;
@@ -21,7 +23,10 @@ use std::process::ExitCode;
 use std::time::Duration;
 use warden::Warden;
 
+#[cfg(not(all(feature = "omarchy", target_os = "linux")))]
 const USAGE: &str = "astral-warden [run|status|install|uninstall|config] [--config <path>] [--wait] [--silent] [--background] [--watch]";
+#[cfg(all(feature = "omarchy", target_os = "linux"))]
+const USAGE: &str = "astral-warden [run|status|install|uninstall|config|omarchy <install|uninstall|watch>] [--config <path>] [--wait] [--silent] [--background] [--watch]";
 const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 enum Command {
@@ -30,6 +35,8 @@ enum Command {
     Install,
     Uninstall,
     Defaults,
+    #[cfg(all(feature = "omarchy", target_os = "linux"))]
+    Omarchy(omarchy::Action),
     Print(&'static str),
 }
 
@@ -56,6 +63,8 @@ fn parse() -> Result<Args, String> {
             "install" => command = Command::Install,
             "uninstall" => command = Command::Uninstall,
             "config" => command = Command::Defaults,
+            #[cfg(all(feature = "omarchy", target_os = "linux"))]
+            "omarchy" => command = Command::Omarchy(omarchy::Action::parse(args.next())?),
             "--silent" => silent = true,
             "--wait" => wait = true,
             "--background" => background = true,
@@ -232,6 +241,8 @@ fn main() -> ExitCode {
         Command::Run => {
             Config::load(&args.config, args.explicit).and_then(|cfg| run(cfg, &args.config, args.wait, args.silent))
         }
+        #[cfg(all(feature = "omarchy", target_os = "linux"))]
+        Command::Omarchy(action) => action.run(),
         Command::Defaults => {
             print!("{}", Config::default_text());
             Ok(())

@@ -54,8 +54,30 @@ jobs:
           name: linux
           path: "*.tar.gz"
 
+  omarchy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: mlugg/setup-zig@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+      - run: cargo zigbuild --release --locked --features omarchy --target x86_64-unknown-linux-gnu.2.17
+      - run: |
+          name="astral-warden-${GITHUB_REF_NAME}-linux-x86_64-omarchy"
+          mkdir -p "$name/init" "$name/omarchy"
+          cp target/x86_64-unknown-linux-gnu/release/astral-warden README.md LICENSE "$name/"
+          cp init/modules-load.conf init/astral-warden.service "$name/init/"
+          cp omarchy/manifest.json omarchy/BarWidget.qml "$name/omarchy/"
+          tar czf "$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omarchy
+          path: "*.tar.gz"
+
   publish:
-    needs: [windows, linux]
+    needs: [windows, linux, omarchy]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

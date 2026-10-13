@@ -26,6 +26,8 @@ scoop install https://github.com/Pat-1337/astral-warden/releases/latest/download
 sudo ./astral-warden install
 ```
 
+**Omarchy**: use the `-omarchy` archive, which also adds a bar widget. See [Omarchy](docs/omarchy.md).
+
 ## Use
 
 One reading:

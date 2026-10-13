@@ -95,12 +95,12 @@ impl Warden {
         }
     }
 
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(not(any(windows, feature = "omarchy")), allow(dead_code))]
     pub fn phase(&self) -> Phase {
         self.guard.phase()
     }
 
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(not(any(windows, feature = "omarchy")), allow(dead_code))]
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -126,6 +126,11 @@ impl Warden {
         )
     }
 
+    #[cfg(feature = "omarchy")]
+    pub fn hottest(&self) -> Option<(usize, f32)> {
+        self.guard.last().map(|r| r.hottest())
+    }
+
     fn state(&self) -> &'static str {
         match self.guard.phase() {
             Phase::Normal => "OK",
@@ -136,7 +141,7 @@ impl Warden {
         }
     }
 
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(not(any(windows, feature = "omarchy")), allow(dead_code))]
     pub fn details(&self) -> Vec<(String, String)> {
         let mut rows = vec![("State".to_owned(), self.state().to_owned())];
 

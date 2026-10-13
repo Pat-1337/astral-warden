@@ -1,4 +1,4 @@
-use super::unix::{self, detach, spawn_quiet};
+use super::unix::{self, detach};
 use crate::config::{self, Config};
 use crate::display;
 use crate::hardware::{Bus, Device, IT8915_ADDR, It8915, NVIDIA, PciId, no_device};
@@ -9,7 +9,7 @@ use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub use unix::Lock;
+pub use unix::{Lock, spawn_quiet};
 
 const PCI_DEVICES: &str = "/sys/bus/pci/devices";
 const ADAPTER_PREFIX: &str = "NVIDIA i2c adapter ";
@@ -237,7 +237,16 @@ impl Host for Desktop {
 }
 
 pub fn run(warden: Warden, cfg: &Config, _: &Path, _: bool) -> Result<(), String> {
-    unix::run_loop(warden, cfg.poll(), &mut Desktop)
+    #[cfg(feature = "omarchy")]
+    let on_tick = {
+        let mut publisher = crate::omarchy::Publisher::new();
+        move |w: &Warden| publisher.tick(w)
+    };
+
+    #[cfg(not(feature = "omarchy"))]
+    let on_tick = |_: &Warden| {};
+
+    unix::run_loop(warden, cfg.poll(), &mut Desktop, on_tick)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -384,12 +393,19 @@ pub fn install(config: &Path, _: bool) -> Result<(), String> {
         .map_err(|e| format!("{path} written, but starting it failed: {e}"))?;
 
     println!("installed as a {init:?} service: {path}");
+
+    #[cfg(feature = "omarchy")]
+    crate::omarchy::for_sudo_user(BIN, "install");
+
     Ok(())
 }
 
 pub fn uninstall(_: bool) -> Result<(), String> {
     require_root()?;
     let init = Init::detect()?;
+
+    #[cfg(feature = "omarchy")]
+    crate::omarchy::for_sudo_user(BIN, "uninstall");
 
     init.disable();
     remove(init.service().0)?;
