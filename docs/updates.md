@@ -21,7 +21,7 @@ Turn it on or off from the Windows tray (**Auto update**), or with `gpu-warden a
 
 ## Check now
 
-**Check for updates** in the Windows tray, or right-click the Omarchy bar widget (`gpu-warden omarchy update`), checks right away, even with `auto_update = false`. A toast answers: up to date, update found (it then installs as below), or why the check failed. On Scoop it says to run `scoop update gpu-warden`.
+**Check for updates** in the Windows tray, or **Updates** in the Omarchy panel (`gpu-warden omarchy update`), checks right away, even with `auto_update = false`. A toast answers: up to date, update found (it then installs as below), or why the check failed. On Scoop it says to run `scoop update gpu-warden`.
 
 ## What happens
 

@@ -27,7 +27,20 @@ gpu-warden omarchy uninstall
 | Warning, recovering, sensor unreadable, shutdown | the same, in the theme's urgent colour |
 | Service not running | dimmed bolt |
 
-Hover for every pin, total power, balance, board power, power cap, and shutdown arming. Click to open `gpu-warden omarchy watch` in a floating terminal. Right-click to check for updates: a notification says whether one was found, and a found update installs on its own.
+Click the icon, left or right, to open the panel. It works like the other Omarchy panels: Esc closes it and Tab moves to the next panel.
+
+| Part | What it shows or does |
+|---|---|
+| Header | board, level, hottest pin current |
+| Readings | every pin, total power, balance, board power, power cap, shutdown arming |
+| Auto update | turns `auto_update` on or off (asks for your password) |
+| Start at boot | enables or disables the service (asks for your password) |
+| Live view | `gpu-warden omarchy watch` in a floating terminal |
+| Updates | checks for updates now; a notification says what it found |
+| Restart | restarts the service (asks for your password) |
+| Config | opens `/etc/gpu-warden/config.toml` with `sudoedit` |
+| Log | follows the service log with `journalctl` |
+| About | opens the project page |
 
 Notifications go through `notify-send`, which the Omarchy shell shows.
 
