@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 pub const PINS: usize = 6;
 
+#[repr(C)]
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Reading {
     pub volts: [f32; PINS],

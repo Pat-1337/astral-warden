@@ -1,8 +1,7 @@
 use super::unix;
-use crate::config::Config;
-use crate::hardware::Device;
-use crate::log;
-use crate::warden::{Host, Severity, Warden};
+use gpu_warden::config::Config;
+use gpu_warden::log;
+use gpu_warden::warden::{Host, Severity, Warden};
 use std::path::Path;
 
 pub use unix::Lock;
@@ -20,10 +19,6 @@ impl Host for Console {
         log!("unsupported platform, not shutting down: {reason}");
         Ok(())
     }
-}
-
-pub fn open_device(_: &Config) -> Result<Device, String> {
-    Err("hardware access needs Windows or Linux; set `simulate` in the config to dry-run".into())
 }
 
 pub fn single_instance() -> Result<Lock, String> {

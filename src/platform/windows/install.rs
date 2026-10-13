@@ -1,6 +1,6 @@
 use super::{CONSOLE, WINDOW_CLASS, hidden, log_path, registry, single_instance, wide};
-use crate::config::{self, Config};
-use crate::log;
+use gpu_warden::config::{self, Config};
+use gpu_warden::log;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;

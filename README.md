@@ -68,4 +68,8 @@ gpu-warden status --watch
 
 Windows and Omarchy installs update themselves, see [updates](docs/updates.md). AUR and Scoop installs update through their package manager.
 
+## SDK
+
+The core also ships as `gpu_warden.dll` and `libgpu_warden.so` with a C header, for reading the pins from your own programs. See [SDK](docs/sdk.md).
+
 More in [docs](docs/).

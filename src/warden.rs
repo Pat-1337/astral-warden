@@ -3,7 +3,8 @@ use crate::display;
 use crate::guard::{Action, Guard, Phase, imbalance};
 use crate::log;
 use crate::power::PowerCap;
-use crate::sensor::{Reading, Sensor};
+use crate::sensor::{PINS, Reading, Sensor};
+use std::fmt;
 use std::time::{Duration, Instant};
 
 const IDLE_PIN_AMPS: f32 = 1.0;
@@ -11,6 +12,8 @@ const LOADED_BOARD_WATTS: f32 = 150.0;
 const SHUTDOWN_RETRY: Duration = Duration::from_secs(15);
 const BOARD_INTERVAL: Duration = Duration::from_secs(5);
 const ALARM_INTERVAL: Duration = Duration::from_secs(2);
+const PIN_KEYS: [&str; PINS] = ["Pin 1", "Pin 2", "Pin 3", "Pin 4", "Pin 5", "Pin 6"];
+const HEX_PIN_KEYS: [&str; PINS] = ["Pin 0x0", "Pin 0x1", "Pin 0x2", "Pin 0x3", "Pin 0x4", "Pin 0x5"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -97,17 +100,14 @@ impl Warden {
         }
     }
 
-    #[cfg_attr(not(any(windows, feature = "omarchy")), allow(dead_code))]
     pub fn phase(&self) -> Phase {
         self.guard.phase()
     }
 
-    #[cfg_attr(not(any(windows, feature = "omarchy")), allow(dead_code))]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    #[cfg_attr(not(windows), allow(dead_code))]
     pub fn greeting(&self) -> (Severity, String, String) {
         if self.guard.last().is_some() {
             return (
@@ -132,12 +132,10 @@ impl Warden {
         self.updated = Some(old);
     }
 
-    #[cfg_attr(not(updater), allow(dead_code))]
     pub fn settled(&self) -> bool {
         self.guard.phase() == Phase::Normal && !self.cap.engaged()
     }
 
-    #[cfg(feature = "omarchy")]
     pub fn hottest(&self) -> Option<(usize, f32)> {
         self.guard.last().map(|r| r.hottest())
     }
@@ -152,54 +150,53 @@ impl Warden {
         }
     }
 
-    #[cfg_attr(not(any(windows, feature = "omarchy")), allow(dead_code))]
-    pub fn details(&self) -> Vec<(String, String)> {
-        let mut rows = vec![("State".to_owned(), self.state().to_owned())];
+    pub fn details(&self, mut row: impl FnMut(&str, fmt::Arguments<'_>)) {
+        row("State", format_args!("{}", self.state()));
 
         match self.guard.last() {
             Some(r) => {
-                rows.extend(r.amps.iter().zip(r.volts).enumerate().map(|(pin, (amps, volts))| {
-                    let value = format!("{}   {}", display::amps(*amps, 2), display::volts(volts));
-                    (capitalized(&display::pin(pin)), value)
-                }));
+                let keys = if display::hex() { &HEX_PIN_KEYS } else { &PIN_KEYS };
+                for ((key, amps), volts) in keys.iter().zip(r.amps).zip(r.volts) {
+                    row(
+                        key,
+                        format_args!("{}   {}", display::amps(amps, 2), display::volts(volts)),
+                    );
+                }
 
-                rows.push((
-                    "Total".into(),
-                    format!("{}   {}", display::amps(r.total(), 1), display::watts(r.watts())),
-                ));
+                let total = r.total();
+                row(
+                    "Total",
+                    format_args!("{}   {}", display::amps(total, 1), display::watts(r.watts())),
+                );
 
-                if r.total() >= self.cfg.imbalance_min_total_amps {
+                if total >= self.cfg.imbalance_min_total_amps {
                     let (pin, deviation) = imbalance(&r);
-                    rows.push((
-                        "Balance".into(),
-                        format!("{} {}", display::pin(pin), display::percent(deviation)),
-                    ));
+                    row(
+                        "Balance",
+                        format_args!("{} {}", display::pin(pin), display::percent(deviation)),
+                    );
                 }
             }
-            None => rows.push(("Pins".into(), "no reading".into())),
+            None => row("Pins", format_args!("no reading")),
         }
 
         if let (Some(watts), Some(limit)) = (self.cap.watts(), self.cap.limit_watts()) {
-            rows.push((
-                "Board".into(),
-                format!("{} / {}", display::watts(watts), display::watts(limit)),
-            ));
+            row(
+                "Board",
+                format_args!("{} / {}", display::watts(watts), display::watts(limit)),
+            );
         }
 
-        let percent = display::percent(self.cfg.power_cap.percent as f32 / 100.0);
-        let percent = percent.trim_start_matches('+');
-        let cap = match (self.cfg.power_cap.enabled, self.cap.available(), self.cap.engaged()) {
-            (false, _, _) => "disabled".to_owned(),
-            (true, Err(_), _) => "unavailable".to_owned(),
-            (true, Ok(()), true) => format!("engaged at {percent}"),
-            (true, Ok(()), false) => format!("armed ({percent})"),
-        };
-        rows.push(("Power cap".into(), cap));
+        let percent = self.cfg.power_cap.percent;
+        match (self.cfg.power_cap.enabled, self.cap.available(), self.cap.engaged()) {
+            (false, _, _) => row("Power cap", format_args!("disabled")),
+            (true, Err(_), _) => row("Power cap", format_args!("unavailable")),
+            (true, Ok(()), true) => row("Power cap", format_args!("engaged at {percent}%")),
+            (true, Ok(()), false) => row("Power cap", format_args!("armed ({percent}%)")),
+        }
 
         let shutdown = if self.cfg.shutdown { "armed" } else { "disabled" };
-        rows.push(("Shutdown".into(), shutdown.into()));
-
-        rows
+        row("Shutdown", format_args!("{shutdown}"));
     }
 
     pub fn summary(&self) -> String {
@@ -387,7 +384,7 @@ impl Warden {
         match self.cap.release() {
             Ok(Some(mw)) => {
                 self.release_error = false;
-                let body = display::watts(mw as f32 / 1000.0);
+                let body = display::watts(mw as f32 / 1000.0).to_string();
                 self.emit(host, Severity::Info, "Power limit restored", &body);
             }
 

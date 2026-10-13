@@ -1,7 +1,7 @@
-use crate::display;
-use crate::log;
 use crate::sha256;
-use crate::warden::{Host, Severity, Warden};
+use gpu_warden::display;
+use gpu_warden::log;
+use gpu_warden::warden::{Host, Severity, Warden};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

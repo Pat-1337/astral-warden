@@ -121,7 +121,6 @@ impl Config {
         }
     }
 
-    #[cfg_attr(not(updater), allow(dead_code))]
     pub fn set_auto_update(path: &Path, enabled: bool) -> Result<(), String> {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,

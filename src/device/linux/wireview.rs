@@ -4,6 +4,7 @@ use crate::wireview::{self, Port, USB_PRODUCT, USB_VENDOR, WireView};
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Read, Write};
 use std::os::fd::AsRawFd;
+use std::os::unix::fs::FileExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
@@ -71,51 +72,69 @@ impl Port for Tty {
     }
 }
 
+type Pins = [(File, File); PINS];
+
 struct Hwmon {
-    pins: [(PathBuf, PathBuf); PINS],
-    text: String,
+    dir: PathBuf,
+    pins: Option<Pins>,
 }
 
 impl Hwmon {
-    fn new(dir: &Path) -> Self {
-        Self {
-            pins: std::array::from_fn(|pin| {
-                (
-                    dir.join(format!("in{pin}_input")),
-                    dir.join(format!("curr{}_input", pin + 1)),
-                )
-            }),
-            text: String::with_capacity(16),
-        }
+    fn new(dir: PathBuf) -> Self {
+        Self { dir, pins: None }
     }
 
-    fn milli(text: &mut String, path: &Path) -> Result<f32, String> {
-        text.clear();
-        File::open(path)
-            .and_then(|mut f| f.read_to_string(text))
-            .map_err(|e| match e.raw_os_error() {
-                Some(libc::ENODATA) => "wireviewd is not sending data".into(),
-                _ => format!("{}: {e}", path.display()),
-            })?;
+    fn open(dir: &Path) -> Result<Pins, String> {
+        let open = |name: String| {
+            let path = dir.join(name);
+            File::open(&path).map_err(|e| format!("{}: {e}", path.display()))
+        };
 
-        let value: f32 = text.trim().parse().map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut pins = Vec::with_capacity(PINS);
+        for pin in 0..PINS {
+            pins.push((open(format!("in{pin}_input"))?, open(format!("curr{}_input", pin + 1))?));
+        }
+
+        pins.try_into().map_err(|_| "hwmon pins missing".into())
+    }
+
+    fn sample(pins: &Pins) -> Result<Reading, String> {
+        let mut reading = Reading::default();
+
+        for (pin, (volts, amps)) in pins.iter().enumerate() {
+            reading.volts[pin] = Self::milli(volts)?;
+            reading.amps[pin] = Self::milli(amps)?;
+        }
+
+        Ok(reading)
+    }
+
+    fn milli(file: &File) -> Result<f32, String> {
+        let mut buf = [0u8; 16];
+        let len = file.read_at(&mut buf, 0).map_err(|e| match e.raw_os_error() {
+            Some(libc::ENODATA) => "wireviewd is not sending data".into(),
+            _ => format!("hwmon read: {e}"),
+        })?;
+
+        let value: f32 = std::str::from_utf8(&buf[..len])
+            .ok()
+            .and_then(|text| text.trim().parse().ok())
+            .ok_or("hwmon value unreadable")?;
         Ok(value / 1000.0)
     }
 }
 
 impl Sensor for Hwmon {
     fn read(&mut self) -> Result<Reading, String> {
-        let mut reading = Reading::default();
+        let pins = match &self.pins {
+            Some(pins) => pins,
+            None => self.pins.insert(Self::open(&self.dir)?),
+        };
 
-        for (pin, (volts, amps)) in self.pins.iter().enumerate() {
-            reading.volts[pin] = Self::milli(&mut self.text, volts)?;
-            reading.amps[pin] = Self::milli(&mut self.text, amps)?;
-        }
-
-        if reading.plausible() {
-            Ok(reading)
-        } else {
-            Err(format!("implausible reading {reading}"))
+        let reading = Self::sample(pins).inspect_err(|_| self.pins = None)?;
+        match reading.plausible() {
+            true => Ok(reading),
+            false => Err(format!("implausible reading {reading}")),
         }
     }
 }
@@ -168,8 +187,8 @@ pub fn open(port: Option<&Path>) -> Option<Result<Opened, String>> {
     }
 
     if let Some(dir) = hwmon() {
-        let mut sensor = Hwmon::new(&dir);
         let detail = format!("via {} (wireviewd)", dir.display());
+        let mut sensor = Hwmon::new(dir);
         return Some(
             sensor
                 .read()
@@ -206,7 +225,7 @@ mod tests {
             .unwrap();
         }
 
-        let reading = Hwmon::new(&dir).read();
+        let reading = Hwmon::new(dir.clone()).read();
         let _ = fs::remove_dir_all(&dir);
 
         let reading = reading.unwrap();

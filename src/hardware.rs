@@ -44,7 +44,6 @@ pub struct PciId {
 }
 
 impl PciId {
-    #[cfg_attr(not(windows), allow(dead_code))]
     pub fn from_dwords(device_id: u32, subsystem_id: u32) -> Self {
         Self {
             vendor: device_id as u16,
@@ -157,14 +156,12 @@ pub struct Device {
     pub sensor: Box<dyn Sensor>,
 }
 
-#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 #[derive(Debug, Clone, Copy)]
 pub struct Gpu {
     pub pci: PciId,
     pub bus: Option<u32>,
 }
 
-#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 pub fn inline_device(sensor: Box<dyn Sensor>, model: &str, via: String, gpus: &[Gpu]) -> Device {
     let (gpu, cap) = match gpus {
         [gpu] => (Some(gpu), format!("power cap on [{}]", gpu.pci)),

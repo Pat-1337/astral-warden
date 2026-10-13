@@ -1,22 +1,17 @@
-mod hwinfo;
 mod install;
-mod nvapi;
 mod registry;
 mod tray;
-mod wireview;
+
+use gpu_warden::win::{os_error, wide};
 
 pub use install::{adopt, install, uninstall};
 
-use crate::config::{self, Config};
-use crate::display;
-use crate::guard::Phase;
-use crate::hardware::{Device, Gpu, It8915, inline_device, no_device};
-use crate::log;
-use crate::sensor::{Reading, Sensor};
-use crate::warden::{Host, Severity, Warden};
-use hwinfo::HwInfo;
+use gpu_warden::config::{self, Config};
+use gpu_warden::display;
+use gpu_warden::guard::Phase;
+use gpu_warden::log;
+use gpu_warden::warden::{Host, Severity, Warden};
 use install::{autostart_enabled, install_args, is_admin, refresh_registration, relaunch_elevated, uninstall_args};
-use nvapi::{NvApi, NvI2c};
 use std::cell::{Cell, RefCell};
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -144,83 +139,6 @@ impl Host for Tray {
     }
 }
 
-fn wide(text: &str) -> Vec<u16> {
-    text.encode_utf16().chain([0]).collect()
-}
-
-fn os_error() -> String {
-    std::io::Error::last_os_error().to_string()
-}
-
-struct Fallback {
-    direct: Option<It8915<NvI2c>>,
-    hwinfo: HwInfo,
-}
-
-impl Sensor for Fallback {
-    fn read(&mut self) -> Result<Reading, String> {
-        let direct = match self.direct.as_mut().map(Sensor::read) {
-            Some(Ok(reading)) => return Ok(reading),
-            Some(Err(e)) => format!("NVAPI: {e}; "),
-            None => String::new(),
-        };
-
-        self.hwinfo.read().map_err(|e| format!("{direct}HWiNFO: {e}"))
-    }
-}
-
-pub fn open_device(cfg: &Config) -> Result<Device, String> {
-    let api = NvApi::load();
-    let mut failures = Vec::new();
-    let mut gpus = Vec::new();
-
-    match &api {
-        Err(e) => failures.push(e.clone()),
-        Ok(api) => {
-            for (gpu, pci) in api.gpus() {
-                gpus.push(Gpu { pci, bus: api.bus(gpu) });
-                if cfg.wireview_port.is_some() {
-                    continue;
-                }
-
-                let Some(model) = pci.model() else {
-                    failures.push(format!("{pci} is not a supported board"));
-                    continue;
-                };
-
-                let direct = It8915::probe(NvI2c { api: api.clone(), gpu })
-                    .inspect_err(|e| log!("direct sensor read failed ({e}), falling back to HWiNFO"))
-                    .ok();
-                let source = match direct {
-                    Some(_) => "NVAPI, HWiNFO as fallback",
-                    None => "HWiNFO",
-                };
-
-                return Ok(Device {
-                    name: model,
-                    detail: format!("[{pci}] via {source}"),
-                    pci: Some(pci),
-                    bus: api.bus(gpu),
-                    sensor: Box::new(Fallback {
-                        direct,
-                        hwinfo: HwInfo::new(),
-                    }),
-                });
-            }
-        }
-    }
-
-    let port = cfg.wireview_port.as_deref().map(|p| p.to_string_lossy());
-    match wireview::open(port.as_deref()) {
-        Some(Ok((sensor, model, via))) => Ok(inline_device(sensor, model, via, &gpus)),
-        Some(Err(e)) => {
-            failures.push(format!("WireView Pro II: {e}"));
-            Err(no_device(&failures))
-        }
-        None => Err(no_device(&failures)),
-    }
-}
-
 pub struct Lock(HANDLE);
 
 impl Drop for Lock {
@@ -339,7 +257,9 @@ struct MenuInfo {
 
 fn menu_info() -> Option<MenuInfo> {
     with_app(|app| {
-        let mut rows = app.warden.details();
+        let mut rows = Vec::new();
+        app.warden
+            .details(|key, value| rows.push((key.to_owned(), value.to_string())));
         if let Some((working, private)) = memory() {
             let memory = match display::hex() {
                 true => format!(
@@ -642,7 +562,7 @@ pub fn memory() -> Option<(f64, f64)> {
 fn uptime(since: Instant) -> String {
     let secs = since.elapsed().as_secs();
     if display::hex() {
-        return display::count(secs, "s");
+        return display::count(secs, "s").to_string();
     }
 
     match (secs / 86_400, secs / 3600 % 24, secs / 60 % 60) {

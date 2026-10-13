@@ -1,13 +1,16 @@
-use super::{os_error, registry, wide};
 use crate::sensor::Sensor;
+use crate::win::registry::{Key, Root, text};
+use crate::win::{os_error, wide};
 use crate::wireview::{self, Port, USB_PRODUCT, USB_VENDOR, WireView};
 use windows_sys::Win32::Devices::Communication::{
     COMMTIMEOUTS, DCB, GetCommState, NOPARITY, ONESTOPBIT, PURGE_RXCLEAR, PurgeComm, SetCommState, SetCommTimeouts,
 };
 use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{CreateFileW, OPEN_EXISTING, ReadFile, WriteFile};
+use windows_sys::Win32::System::Registry::KEY_READ;
 
 const BAUD: u32 = 115_200;
+const USB: &str = r"SYSTEM\CurrentControlSet\Enum\USB";
 const TIMEOUT_MS: u32 = 1000;
 const BINARY_DTR_RTS: u32 = 0x1011;
 
@@ -121,7 +124,21 @@ impl Port for Com {
 }
 
 fn ports() -> Vec<String> {
-    registry::usb_ports(&format!("VID_{USB_VENDOR:04X}&PID_{USB_PRODUCT:04X}"))
+    let path = format!(r"{USB}\VID_{USB_VENDOR:04X}&PID_{USB_PRODUCT:04X}");
+    let Some(key) = Key::open(Root::Machine, &path, KEY_READ) else {
+        return Vec::new();
+    };
+
+    key.subkeys()
+        .iter()
+        .filter_map(|instance| {
+            text(
+                Root::Machine,
+                &format!(r"{path}\{instance}\Device Parameters"),
+                "PortName",
+            )
+        })
+        .collect()
 }
 
 fn probe(port: &str) -> Result<(Com, &'static str), String> {

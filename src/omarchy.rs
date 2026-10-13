@@ -1,9 +1,6 @@
-// Status file layout; `watch` reads its fields by position:
-//   {"ts":<unix secs>,"level":"ok|warn|crit","name":"..","text":"..","rows":[["..",".."],..]}
-
-use crate::guard::Phase;
 use crate::platform::spawn_quiet;
-use crate::warden::Warden;
+use gpu_warden::guard::Phase;
+use gpu_warden::warden::Warden;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -56,6 +53,7 @@ pub struct Publisher {
     at: Option<Instant>,
     level: &'static str,
     buf: String,
+    scratch: String,
     requested: Option<SystemTime>,
 }
 
@@ -75,6 +73,7 @@ impl Publisher {
             at: None,
             level: "",
             buf: String::with_capacity(512),
+            scratch: String::with_capacity(64),
             requested: modified(REQUEST),
         }
     }
@@ -88,7 +87,7 @@ impl Publisher {
 
         self.at = Some(Instant::now());
         self.level = level;
-        render(&mut self.buf, level, warden);
+        render(&mut self.buf, &mut self.scratch, level, warden);
 
         let _ = fs::write(STAGED, &self.buf).and_then(|()| fs::rename(STAGED, STATUS));
 
@@ -119,25 +118,32 @@ fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
-fn render(out: &mut String, level: &str, warden: &Warden) {
+fn render(out: &mut String, scratch: &mut String, level: &str, warden: &Warden) {
     out.clear();
     let _ = write!(out, r#"{{"ts":{},"level":"{level}","name":"#, now());
     quote(out, warden.name());
 
-    out.push_str(r#","text":"#);
     match warden.hottest() {
-        Some((_, amps)) => quote(out, &crate::display::amps(amps, 1)),
-        None => quote(out, "--"),
+        Some((_, amps)) => {
+            let _ = write!(out, r#","text":"{}""#, gpu_warden::display::amps(amps, 1));
+        }
+        None => out.push_str(r#","text":"--""#),
     }
 
     out.push_str(r#","rows":["#);
-    for (i, (key, value)) in warden.details().iter().enumerate() {
-        out.push_str(if i == 0 { "[" } else { ",[" });
+    let mut first = true;
+    warden.details(|key, value| {
+        out.push_str(if first { "[" } else { ",[" });
+        first = false;
+
         quote(out, key);
         out.push(',');
-        quote(out, value);
+
+        scratch.clear();
+        let _ = scratch.write_fmt(value);
+        quote(out, scratch);
         out.push(']');
-    }
+    });
     out.push_str("]}\n");
 }
 

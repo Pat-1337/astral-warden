@@ -1,4 +1,4 @@
-use crate::warden::{Host, Warden};
+use gpu_warden::warden::{Host, Warden};
 use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;

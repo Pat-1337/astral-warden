@@ -7,6 +7,10 @@ description = "Per-pin 12V-2x6 watchdog for ASUS ROG Astral and Matrix GPUs and 
 license = "MIT"
 publish = false
 
+[lib]
+name = "gpu_warden"
+crate-type = ["rlib", "cdylib"]
+
 [features]
 omarchy = []
 portable = []

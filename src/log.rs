@@ -2,9 +2,12 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_BYTES: u64 = 1 << 20;
+
+static QUIET: AtomicBool = AtomicBool::new(false);
 
 struct Sink {
     path: Option<PathBuf>,
@@ -22,7 +25,10 @@ fn sink() -> std::sync::MutexGuard<'static, Sink> {
     SINK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-#[cfg_attr(not(windows), allow(dead_code))]
+pub fn quiet() {
+    QUIET.store(true, Ordering::Relaxed);
+}
+
 pub fn to_file(path: PathBuf) {
     sink().path = Some(path);
 }
@@ -31,7 +37,6 @@ pub fn arm() -> bool {
     !std::mem::replace(&mut sink().armed, true)
 }
 
-#[cfg_attr(not(windows), allow(dead_code))]
 pub fn has_file() -> bool {
     sink().path.as_ref().is_some_and(|p| p.exists())
 }
@@ -50,7 +55,9 @@ pub fn write(msg: &str) {
         None => format!("{} {msg}\n", timestamp()),
     };
 
-    let _ = std::io::stderr().write_all(line.as_bytes());
+    if !QUIET.load(Ordering::Relaxed) {
+        let _ = std::io::stderr().write_all(line.as_bytes());
+    }
 
     let mut sink = sink();
     let Sink {

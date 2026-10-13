@@ -1,33 +1,23 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 #![cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 
-mod config;
-mod display;
-mod dylib;
-mod guard;
-mod hardware;
-mod log;
 #[cfg(all(feature = "omarchy", target_os = "linux"))]
 mod omarchy;
 mod platform;
-mod power;
-mod sensor;
 #[cfg(updater)]
 mod sha256;
 #[cfg(updater)]
 mod update;
-mod warden;
-#[cfg(any(target_os = "linux", windows))]
-mod wireview;
 
-use config::Config;
-use hardware::Device;
-use power::PowerCap;
-use sensor::{Sensor, Simulated};
+use gpu_warden::config::{self, Config};
+use gpu_warden::hardware::Device;
+use gpu_warden::power::PowerCap;
+use gpu_warden::sensor::Sensor;
+use gpu_warden::warden::Warden;
+use gpu_warden::{device, display, guard, log};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
-use warden::Warden;
 
 #[cfg(not(updater))]
 const USAGE: &str =
@@ -125,14 +115,8 @@ fn secret_name(device: &Device) -> String {
 
 fn open(cfg: &Config) -> Result<Device, String> {
     let mut device = match &cfg.simulate {
-        Some(path) => Device {
-            name: "Simulated".into(),
-            detail: path.display().to_string(),
-            pci: None,
-            bus: None,
-            sensor: Box::new(Simulated(path.clone())),
-        },
-        None => platform::open_device(cfg)?,
+        Some(path) => device::simulated(path),
+        None => device::open(cfg.wireview_port.as_deref())?,
     };
 
     if display::hex() {

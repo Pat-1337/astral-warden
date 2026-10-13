@@ -45,20 +45,38 @@ export PATH="$(dirname "$(rustup which rustc)"):$PATH"
 
 ## Layout
 
+The crate is a library, `gpu_warden`, plus the `gpu-warden` app built on it. The library is also built as `gpu_warden.dll` and `libgpu_warden.so` with a C interface; see [SDK](sdk.md).
+
+### Library
+
 | File | Role |
 |---|---|
+| `src/lib.rs` | Library root |
+| `src/ffi.rs` | C interface, matching `include/gpu_warden.h` |
+| `src/sensor.rs` | `Reading` and the `Sensor` trait |
 | `src/hardware.rs` | Supported IDs, IT8915 decode, `Bus` trait |
+| `src/wireview.rs` | WireView Pro II serial protocol |
+| `src/device/` | Finding and opening a sensor: sysfs and i2c-dev on Linux, NVAPI and HWiNFO on Windows, WireView on both |
 | `src/guard.rs` | State machine (pure, no I/O) |
 | `src/warden.rs` | Glues sensor, guard, power cap, and notifications |
 | `src/power.rs` | NVML power limit (loaded at runtime) |
+| `src/config.rs` | Settings and their paths |
 | `src/display.rs` | Number and name formatting for everything shown to users |
-| `src/platform/windows/` | NVAPI I2C, tray, shutdown |
+| `src/win/` | Windows string and registry helpers |
+
+### App
+
+| File | Role |
+|---|---|
+| `src/main.rs` | Command line |
+| `src/platform/windows/` | Tray, notifications, shutdown |
 | `src/platform/windows/install.rs` | Installer and portable install, logon task, full uninstall |
-| `src/platform/windows/registry.rs` | Apps-list entry and autostart flag in HKLM |
-| `src/platform/linux.rs` | sysfs detection, i2c-dev, init install, poweroff |
+| `src/platform/windows/registry.rs` | Apps-list entry, autostart flag, and the traces uninstall clears |
+| `src/platform/linux/` | Notifications, init install, poweroff |
 | `src/update.rs` | Self-update for Windows and Omarchy builds (`cfg(updater)`, set by `build.rs`) |
 | `src/sha256.rs` | SHA-256 for checking downloaded releases |
 | `src/omarchy.rs` | `omarchy` feature: status file, widget install, `omarchy watch` |
+| `include/` | C header for the shared library |
 | `omarchy/` | Omarchy shell bar widget, embedded at build time |
 | `init/` | Service templates, embedded at build time |
 | `build.rs` | Windows icon, version info, and manifest resources |
@@ -72,6 +90,7 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds:
 - `gpu-warden-<tag>-windows-x86_64-portable.zip` (`--features portable`)
 - `gpu-warden-<tag>-linux-x86_64-{systemd,openrc,runit}.tar.gz` (glibc 2.17+)
 - `gpu-warden-<tag>-linux-x86_64-omarchy.tar.gz` (built with `--features omarchy`, systemd)
+- `gpu-warden-<tag>-{windows,linux}-x86_64-sdk` (shared library and C header)
 - `SHA256SUMS`
 - `gpu-warden.json` (Scoop manifest)
 

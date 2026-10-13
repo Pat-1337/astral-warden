@@ -1,4 +1,4 @@
-use crate::warden::Severity;
+use gpu_warden::warden::Severity;
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
 use windows_sys::Win32::UI::Shell::{

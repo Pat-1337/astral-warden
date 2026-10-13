@@ -169,6 +169,10 @@ impl PowerCap {
         nvml.query(nvml.get_limit).ok().map(|mw| mw as f32 / 1000.0)
     }
 
+    pub fn set_percent(&mut self, percent: u32) {
+        self.percent = percent.clamp(1, 100);
+    }
+
     pub fn engaged(&self) -> bool {
         self.saved_mw.is_some()
     }
