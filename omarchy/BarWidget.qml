@@ -12,10 +12,15 @@ Panel {
   readonly property string configPath: "/etc/gpu-warden/config.toml"
   readonly property string terminal: "omarchy-launch-floating-terminal-with-presentation "
   readonly property int staleSecs: 5
-  readonly property string glyph: ""
+  readonly property string glyph: "\uf0e7"
 
   property var status: null
   property bool online: false
+  property var pins: []
+  property var summary: []
+  property string state: ""
+  property real warnAmps: 9.5
+  property real critAmps: 13
   property bool autoUpdate: true
   property bool atBoot: false
   property bool busy: false
@@ -27,7 +32,23 @@ Panel {
   function parse(text) {
     try {
       var next = JSON.parse(text)
+      var pins = []
+      var summary = []
+      var state = ""
+
+      for (var i = 0; i < next.rows.length; i++) {
+        var row = next.rows[i]
+        var parts = String(row[1]).trim().split(/\s+/)
+
+        if (row[0] === "State") state = row[1]
+        else if (/^Pin \d/.test(row[0])) pins.push({ label: row[0], amps: parseFloat(parts[0]), volts: parts[2] + " V" })
+        else summary.push(row)
+      }
+
       root.status = next
+      root.pins = pins
+      root.summary = summary
+      root.state = state
       root.online = Date.now() / 1000 - next.ts < root.staleSecs
     } catch (e) {
       root.online = false
@@ -35,17 +56,28 @@ Panel {
   }
 
   function parseConfig(text) {
-    var match = /^\s*auto_update\s*=\s*(true|false)/m.exec(text)
-    root.autoUpdate = !match || match[1] === "true"
+    var update = /^\s*auto_update\s*=\s*(true|false)/m.exec(text)
+    root.autoUpdate = !update || update[1] === "true"
+
+    var limits = /\[pin_amps\]([^\[]*)/.exec(text)
+    var warn = limits && /warn\s*=\s*([\d.]+)/.exec(limits[1])
+    var crit = limits && /crit\s*=\s*([\d.]+)/.exec(limits[1])
+    root.warnAmps = warn ? parseFloat(warn[1]) : 9.5
+    root.critAmps = crit ? parseFloat(crit[1]) : 13
+  }
+
+  function hottest() {
+    var best = 0
+    for (var i = 1; i < root.pins.length; i++) {
+      if (root.pins[i].amps > root.pins[best].amps) best = i
+    }
+    return root.pins.length ? root.pins[best].label : ""
   }
 
   function levelLabel() {
-    switch (root.level) {
-      case "ok": return "All pins OK"
-      case "warn": return "Warning"
-      case "crit": return "Critical"
-      default: return "Service not running"
-    }
+    if (!root.online) return "Service not running"
+    if (root.level === "ok") return "All pins OK"
+    return root.state || (root.level === "crit" ? "Critical" : "Warning")
   }
 
   function tooltip() {
@@ -72,6 +104,7 @@ Panel {
   }
 
   onOpenedChanged: if (opened) refreshSettings()
+  Component.onCompleted: config.reload()
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -125,8 +158,26 @@ Panel {
     text: root.online && !(root.bar && root.bar.vertical) ? root.glyph + " " + root.status.text : root.glyph
     active: root.level === "warn" || root.level === "crit"
     dimmed: !root.online
+    fixedWidth: root.online && !(root.bar && root.bar.vertical)
+      ? barWidest.advanceWidth + button.scaledHorizontalMargin * 2
+      : -1
     tooltipText: root.tooltip()
     onPressed: function(b) { root.toggle() }
+  }
+
+  TextMetrics {
+    id: barWidest
+    font.family: button.fontFamily
+    font.pixelSize: button.fontSize
+    text: root.glyph + " 00.0 A"
+  }
+
+  TextMetrics {
+    id: heroWidest
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.displayLarge
+    font.bold: true
+    text: "00.0 A"
   }
 
   KeyboardPanel {
@@ -197,16 +248,69 @@ Panel {
             }
           }
 
-          Text {
+          Column {
             id: heroAmps
-            text: root.online ? root.status.text : "—"
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.displayLarge
-            font.bold: true
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(2)
+
+            Text {
+              anchors.right: parent.right
+              width: heroWidest.advanceWidth
+              horizontalAlignment: Text.AlignRight
+              text: root.online ? root.status.text : "—"
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.displayLarge
+              font.bold: true
+            }
+
+            Text {
+              anchors.right: parent.right
+              visible: root.online
+              text: ("hottest " + root.hottest()).toUpperCase()
+              color: Qt.darker(root.foreground, 1.4)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              font.letterSpacing: 1.2
+            }
           }
+        }
+
+        PanelSeparator { visible: root.online; foreground: root.foreground }
+
+        PanelSectionHeader {
+          visible: root.online
+          text: "PINS"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+        }
+
+        Column {
+          visible: root.online
+          width: parent.width
+          spacing: Style.space(8)
+
+          Repeater {
+            model: root.pins
+
+            PinRow {
+              required property var modelData
+              label: modelData.label
+              amps: modelData.amps
+              volts: modelData.volts
+            }
+          }
+        }
+
+        PanelSeparator { visible: root.online; foreground: root.foreground }
+
+        PanelSectionHeader {
+          visible: root.online
+          text: "SUMMARY"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
         }
 
         Column {
@@ -215,7 +319,7 @@ Panel {
           spacing: Style.spacing.labelGap
 
           Repeater {
-            model: root.online ? root.status.rows : []
+            model: root.summary
 
             InfoPair {
               required property var modelData
@@ -312,6 +416,80 @@ Panel {
     horizontalPadding: Style.spacing.controlPaddingX
     verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
     bordered: true
+  }
+
+  component PinRow: Item {
+    id: pin
+
+    property string label: ""
+    property real amps: 0
+    property string volts: ""
+
+    readonly property bool hot: amps >= root.warnAmps
+    readonly property color tone: hot ? (root.bar ? root.bar.urgent : Color.urgent) : root.foreground
+
+    width: parent.width
+    implicitHeight: Math.max(pinLabel.implicitHeight, pinAmps.implicitHeight)
+
+    InfoLabel {
+      id: pinLabel
+      width: Style.space(52)
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      text: pin.label
+    }
+
+    Rectangle {
+      id: track
+      anchors.left: pinLabel.right
+      anchors.right: pinAmps.left
+      anchors.rightMargin: Style.space(12)
+      anchors.verticalCenter: parent.verticalCenter
+      height: Style.space(6)
+      radius: height / 2
+      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+
+      Rectangle {
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        height: parent.height
+        radius: parent.radius
+        width: Math.max(height, parent.width * Math.min(1, pin.amps / root.critAmps))
+        color: pin.tone
+
+        Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+      }
+
+      Rectangle {
+        x: parent.width * Math.min(1, root.warnAmps / root.critAmps) - width / 2
+        anchors.verticalCenter: parent.verticalCenter
+        width: Math.max(1, Style.space(2))
+        height: parent.height + Style.space(6)
+        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.45)
+      }
+    }
+
+    Text {
+      id: pinAmps
+      width: Style.space(64)
+      anchors.right: pinVolts.left
+      anchors.verticalCenter: parent.verticalCenter
+      horizontalAlignment: Text.AlignRight
+      text: pin.amps.toFixed(2) + " A"
+      color: pin.tone
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+      font.bold: pin.hot
+    }
+
+    InfoLabel {
+      id: pinVolts
+      width: Style.space(72)
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      horizontalAlignment: Text.AlignRight
+      text: pin.volts
+    }
   }
 
   component InfoPair: Row {
