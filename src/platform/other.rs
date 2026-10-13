@@ -22,10 +22,6 @@ impl Host for Console {
     }
 }
 
-pub fn migrate(_: Option<&str>) -> bool {
-    false
-}
-
 pub fn open_device(_: &Config) -> Result<Device, String> {
     Err("hardware access needs Windows or Linux; set `simulate` in the config to dry-run".into())
 }

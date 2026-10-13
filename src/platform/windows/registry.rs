@@ -9,8 +9,6 @@ use windows_sys::Win32::System::Registry::{
 
 const APP: &str = r"SOFTWARE\GPUWarden";
 const UNINSTALL: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\GPUWarden";
-const LEGACY_APP: &str = r"SOFTWARE\AstralWarden";
-const LEGACY_UNINSTALL: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AstralWarden";
 const USB: &str = r"SYSTEM\CurrentControlSet\Enum\USB";
 
 const MUI_CACHE: &str = r"Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache";
@@ -209,10 +207,6 @@ pub fn autostart() -> bool {
     flag(APP, "Autostart")
 }
 
-pub fn legacy_autostart() -> bool {
-    flag(LEGACY_APP, "Autostart")
-}
-
 pub fn set_autostart(enabled: bool) -> Result<(), String> {
     Key::create(APP)?.set("Autostart", Value::Number(u32::from(enabled)))
 }
@@ -240,11 +234,6 @@ pub fn register(exe: &Path) -> Result<(), String> {
 pub fn unregister() {
     delete(HKEY_LOCAL_MACHINE, UNINSTALL);
     delete(HKEY_LOCAL_MACHINE, APP);
-}
-
-pub fn unregister_legacy() {
-    delete(HKEY_LOCAL_MACHINE, LEGACY_UNINSTALL);
-    delete(HKEY_LOCAL_MACHINE, LEGACY_APP);
 }
 
 fn rot13(text: &str) -> String {

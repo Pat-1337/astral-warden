@@ -74,7 +74,6 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds:
 - `gpu-warden-<tag>-linux-x86_64-omarchy.tar.gz` (built with `--features omarchy`, systemd)
 - `SHA256SUMS`
 - `gpu-warden.json` (Scoop manifest)
-- copies under the old name, Astral Warden, for older updaters (see [packaging](packaging.md#windows-release-files))
 
 If the AUR secrets are set, it also updates the AUR package. See [packaging](packaging.md).
 

@@ -25,7 +25,7 @@ Double-click `gpu-warden-<version>-windows-x86_64-setup.exe` and accept the UAC 
 
 With fast user switching, a second session waits (`--wait`) and takes over when the first logs off.
 
-Uninstall from **Settings → Apps → Installed apps → GPU Warden → Uninstall**, or run `gpu-warden uninstall`. It stops the running instance and removes everything: the program folder, config, log, state files, the logon task, registry entries, and update downloads. It also clears what Windows records about every program it runs: the MuiCache, UserAssist, Compatibility Assistant and tray icon entries, and the Prefetch files. A leftover Astral Warden install is removed too.
+Uninstall from **Settings → Apps → Installed apps → GPU Warden → Uninstall**, or run `gpu-warden uninstall`. It stops the running instance and removes everything: the program folder, config, log, state files, the logon task, registry entries, and update downloads. It also clears what Windows records about every program it runs: the MuiCache, UserAssist, Compatibility Assistant and tray icon entries, and the Prefetch files.
 
 ### Portable
 

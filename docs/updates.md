@@ -34,18 +34,4 @@ Turn it on or off from the Windows tray (**Auto update**), or with `gpu-warden a
 
 If the new version fails to start, it puts the previous binary back, restarts it, and records the failed version in `gpu-warden.skip` so it isn't tried again. A later release is tried as usual.
 
-## From Astral Warden
-
-GPU Warden was called Astral Warden up to 0.9.0. An Astral Warden install updates to GPU Warden on its own and moves over on first start:
-
-| Install | What moves |
-|---|---|
-| Windows installer | program to `C:\Program Files\GPUWarden`, config and log to `C:\ProgramData\gpu-warden`, logon task, Apps entry |
-| Windows portable | the exe and its files next to it are renamed to `gpu-warden.*`, logon task |
-| Omarchy | binary to `/usr/local/bin/gpu-warden`, config to `/etc/gpu-warden`, service, bar widget |
-| Scoop | stays `astral-warden` and keeps updating. Switch with `scoop uninstall astral-warden`, then install `gpu-warden.json` |
-| AUR | install `gpu-warden-bin`; it replaces `astral-warden-bin` and moves the config |
-
-Everything under the old name is removed afterwards. Running `install` of GPU Warden by hand does the same cleanup.
-
 Downloads go to `/var/lib/gpu-warden/update` on Linux and `%TEMP%\gpu-warden-update` on Windows, and are removed after the swap.

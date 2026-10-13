@@ -18,11 +18,18 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 const TASK: &str = "GPUWarden";
 #[cfg(not(feature = "portable"))]
 const EXE: &str = "gpu-warden.exe";
-const LEGACY_TASK: &str = "AstralWarden";
-const LEGACY_CLASS: &str = "AstralWarden";
-const LEGACY_EXE: &str = "astral-warden.exe";
-const NAMES: &[&str] = &["gpu-warden", "gpuwarden", "astral-warden", "astralwarden"];
-const PREFETCH: &str = r#"/C ping -n 15 127.0.0.1 >NUL & del /F /Q "%SystemRoot%\Prefetch\GPU-WARDEN*.pf" "%SystemRoot%\Prefetch\ASTRAL-WARDEN*.pf""#;
+const NAMES: &[&str] = &["gpu-warden", "gpuwarden"];
+const LATE_CLEANUP: &str = r#"Start-Sleep 15
+$n = 'gpu-warden|gpuwarden'
+foreach ($k in 'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache',
+               'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Store') {
+    $key = Get-Item -LiteralPath $k -ErrorAction SilentlyContinue
+    if ($key) { $key.Property | Where-Object { $_ -match $n } | ForEach-Object { Remove-ItemProperty -LiteralPath $k -Name $_ } }
+}
+Get-ChildItem 'HKCU:\Control Panel\NotifyIconSettings' -ErrorAction SilentlyContinue |
+    Where-Object { (Get-ItemProperty -LiteralPath $_.PSPath).ExecutablePath -match $n } |
+    Remove-Item -Recurse
+Remove-Item "$env:SystemRoot\Prefetch\GPU-WARDEN*.pf" -Force -ErrorAction SilentlyContinue"#;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const RETRY: Duration = Duration::from_millis(250);
 
@@ -61,14 +68,6 @@ fn known_dir(var: &str, fallback: &str) -> PathBuf {
 
 fn install_dir() -> PathBuf {
     known_dir("ProgramFiles", r"C:\Program Files").join("GPUWarden")
-}
-
-fn legacy_dirs() -> [PathBuf; 3] {
-    [
-        known_dir("ProgramFiles", r"C:\Program Files").join("AstralWarden"),
-        known_dir("ProgramData", r"C:\ProgramData").join("astral-warden"),
-        std::env::temp_dir().join("astral-warden-update"),
-    ]
 }
 
 fn ours(text: &str) -> bool {
@@ -225,9 +224,6 @@ pub fn install(config: &Path, background: bool) -> Result<(), String> {
     let current = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe = target(&current)?;
 
-    #[cfg(not(feature = "portable"))]
-    copy_legacy_data()?;
-
     if Config::write_default(config).map_err(|e| format!("{}: {e}", config.display()))? {
         println!("wrote {}", config.display());
     }
@@ -239,7 +235,6 @@ pub fn install(config: &Path, background: bool) -> Result<(), String> {
         return Ok(());
     }
 
-    retire_legacy();
     hidden("schtasks", &["/Run", "/TN", TASK])?;
 
     #[cfg(not(feature = "portable"))]
@@ -343,115 +338,38 @@ fn forget_traces() {
         }
     }
 
-    let _ = Command::new("cmd")
-        .raw_arg(PREFETCH)
+    let script: Vec<u8> = LATE_CLEANUP.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let _ = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-EncodedCommand",
+        ])
+        .arg(base64(&script))
         .creation_flags(CREATE_NO_WINDOW)
         .spawn();
 }
 
-fn retire_legacy() {
-    let _ = hidden("schtasks", &["/Delete", "/F", "/TN", LEGACY_TASK]);
-    close_windows(LEGACY_CLASS);
-    registry::unregister_legacy();
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
 
-    for dir in legacy_dirs() {
-        remove_dir(&dir);
-    }
-}
+    for chunk in bytes.chunks(3) {
+        let n = u32::from(chunk[0]) << 16
+            | u32::from(*chunk.get(1).unwrap_or(&0)) << 8
+            | u32::from(*chunk.get(2).unwrap_or(&0));
 
-#[cfg(not(feature = "portable"))]
-fn copy_legacy_data() -> Result<(), String> {
-    let config = config::default_path();
-    let data = config.parent().ok_or("no config folder")?;
-    let legacy = &legacy_dirs()[1];
-    if !legacy.exists() {
-        return Ok(());
-    }
-
-    std::fs::create_dir_all(data).map_err(|e| format!("{}: {e}", data.display()))?;
-    for (from, to) in [
-        ("config.toml", "config.toml"),
-        ("astral-warden.log", "gpu-warden.log"),
-        ("last-shutdown.txt", "last-shutdown.txt"),
-    ] {
-        let (from, to) = (legacy.join(from), data.join(to));
-        if from.exists() && !to.exists() {
-            std::fs::copy(&from, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+        for i in 0..4 {
+            out.push(match i <= chunk.len() {
+                true => ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char,
+                false => '=',
+            });
         }
     }
 
-    Ok(())
-}
-
-#[cfg(not(feature = "portable"))]
-fn move_install(current: &Path, autostart: bool) -> Result<(PathBuf, PathBuf), String> {
-    let config = config::default_path();
-    copy_legacy_data()?;
-
-    let exe = target(current)?;
-    if autostart {
-        create_task(&exe, &config)?;
-    }
-
-    Ok((exe, config))
-}
-
-#[cfg(feature = "portable")]
-fn move_install(current: &Path, autostart: bool) -> Result<(PathBuf, PathBuf), String> {
-    let exe = current.with_file_name("gpu-warden.exe");
-
-    for extension in ["toml", "log", "log.old", "power-cap", "last-shutdown"] {
-        let (from, to) = (current.with_extension(extension), exe.with_extension(extension));
-        if from.exists() && !to.exists() {
-            std::fs::rename(&from, &to).map_err(|e| format!("{}: {e}", to.display()))?;
-        }
-    }
-
-    std::fs::rename(current, &exe).map_err(|e| format!("{}: {e}", exe.display()))?;
-    let config = exe.with_extension("toml");
-    if autostart {
-        create_task(&exe, &config)?;
-    }
-
-    Ok((exe, config))
-}
-
-pub fn migrate(updated: Option<&str>) -> bool {
-    let Ok(current) = std::env::current_exe() else {
-        return false;
-    };
-
-    let legacy = current.file_name().is_some_and(|n| n.eq_ignore_ascii_case(LEGACY_EXE));
-    if !legacy || scoop_current(&current).is_some() {
-        return false;
-    }
-
-    let autostart = registry::legacy_autostart() || hidden("schtasks", &["/Query", "/TN", LEGACY_TASK]).is_ok();
-    if (autostart || cfg!(not(feature = "portable"))) && !is_admin() {
-        return false;
-    }
-
-    let (exe, config) = match move_install(&current, autostart) {
-        Ok(moved) => moved,
-        Err(e) => {
-            log!("moving to GPU Warden failed: {e}");
-            return false;
-        }
-    };
-
-    let mut run = Command::new(&exe);
-    run.args(["run", "--wait", "--silent", "--config"]).arg(&config);
-    if let Some(version) = updated {
-        run.args(["--updated", version]);
-    }
-
-    if let Err(e) = run.spawn() {
-        log!("{}: {e}", exe.display());
-        return false;
-    }
-
-    retire_legacy();
-    true
+    out
 }
 
 #[cfg(not(feature = "portable"))]
@@ -495,7 +413,6 @@ pub fn uninstall(background: bool) -> Result<(), String> {
 
     registry::unregister();
     remove_data();
-    retire_legacy();
     forget_traces();
 
     let current = std::env::current_exe().map_err(|e| e.to_string())?;

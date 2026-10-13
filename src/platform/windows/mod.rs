@@ -5,7 +5,7 @@ mod registry;
 mod tray;
 mod wireview;
 
-pub use install::{adopt, install, migrate, uninstall};
+pub use install::{adopt, install, uninstall};
 
 use crate::config::{self, Config};
 use crate::display;

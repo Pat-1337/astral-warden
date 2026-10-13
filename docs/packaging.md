@@ -55,14 +55,3 @@ updpkgsums && makepkg -f && namcap PKGBUILD *.pkg.tar.zst
 | `gpu-warden-<tag>-windows-x86_64-setup.exe` | installer (default features) |
 | `gpu-warden-<tag>-windows-x86_64-portable.zip` | portable (`--features portable`) |
 
-The project was called Astral Warden up to 0.9.0. Older updaters look for files under the old name, so each release also carries copies under it:
-
-| File | For |
-|---|---|
-| `astral-warden-<tag>-windows-x86_64-setup.exe` | 0.8.1 to 0.9.0 installer updaters |
-| `astral-warden-<tag>-windows-x86_64-portable.zip` | 0.8.1 to 0.9.0 portable updaters, and the old Scoop manifest |
-| `astral-warden-<tag>-windows-x86_64.zip` | 0.8.0's updater |
-| `astral-warden-<tag>-linux-x86_64-omarchy.tar.gz` | 0.8.0 to 0.9.0 Omarchy updaters |
-| `astral-warden.json` | Scoop installs made under the old name |
-
-Drop them once nobody runs Astral Warden.

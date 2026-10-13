@@ -25,16 +25,6 @@ const RUNIT_SV: &str = "/etc/sv/gpu-warden";
 const RUNSVDIRS: &[&str] = &["/var/service", "/etc/runit/runsvdir/default", "/run/runit/service"];
 const MODULES: &str = "/etc/modules-load.d/gpu-warden.conf";
 const UDEV: &str = "/etc/udev/rules.d/70-gpu-warden.rules";
-const LEGACY_BIN: &str = "/usr/local/bin/astral-warden";
-const LEGACY_CONFIG: &str = "/etc/astral-warden/config.toml";
-const LEGACY_FILES: &[&str] = &[
-    "/etc/modules-load.d/astral-warden.conf",
-    "/etc/udev/rules.d/70-astral-warden.rules",
-    "/run/astral-warden.power-cap",
-    "/run/lock/astral-warden.lock",
-    "/var/log/astral-warden.log",
-];
-const LEGACY_DIRS: &[&str] = &["/etc/astral-warden", "/var/lib/astral-warden", "/run/astral-warden"];
 
 #[repr(C)]
 struct SmbusIoctl {
@@ -347,38 +337,6 @@ impl Init {
         }
     }
 
-    fn legacy_unit(self) -> &'static str {
-        match self {
-            Self::Systemd => "/etc/systemd/system/astral-warden.service",
-            Self::OpenRc => "/etc/init.d/astral-warden",
-            Self::Runit => "/etc/sv/astral-warden",
-        }
-    }
-
-    fn stop_legacy(self) {
-        let script = match self {
-            Self::Systemd => {
-                let _ = spawn_quiet("systemctl", &["disable", "astral-warden.service"]);
-                let _ = remove(self.legacy_unit());
-                let _ = spawn_quiet("systemctl", &["daemon-reload"]);
-                let _ = spawn_quiet("systemctl", &["stop", "--no-block", "astral-warden.service"]);
-                return;
-            }
-
-            Self::OpenRc => {
-                let _ = spawn_quiet("rc-update", &["del", "astral-warden", "default"]);
-                "rc-service astral-warden stop; rm -f /etc/init.d/astral-warden".to_owned()
-            }
-
-            Self::Runit => {
-                let links: Vec<_> = RUNSVDIRS.iter().map(|d| format!("{d}/astral-warden")).collect();
-                format!("rm -f {}; sleep 6; rm -rf /etc/sv/astral-warden", links.join(" "))
-            }
-        };
-
-        detach(Command::new("setsid").args(["sh", "-c", &script]));
-    }
-
     fn disable(self) {
         match self {
             Self::Systemd => drop(spawn_quiet("systemctl", &["disable", "--now", "gpu-warden.service"])),
@@ -466,55 +424,7 @@ pub fn install(config: &Path, _: bool) -> Result<(), String> {
     #[cfg(feature = "omarchy")]
     crate::omarchy::for_sudo_user(BIN, "install");
 
-    retire_legacy(init);
     Ok(())
-}
-
-fn retire_legacy(init: Init) {
-    let unit = init.legacy_unit();
-    if ![LEGACY_BIN, LEGACY_CONFIG, unit].iter().any(|p| Path::new(p).exists()) {
-        return;
-    }
-
-    #[cfg(feature = "omarchy")]
-    crate::omarchy::migrate_widgets(BIN);
-
-    for suffix in ["", ".old", ".new", ".failed", ".skip"] {
-        let _ = remove(&format!("{LEGACY_BIN}{suffix}"));
-    }
-    for file in LEGACY_FILES {
-        let _ = remove(file);
-    }
-    for dir in LEGACY_DIRS {
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    let _ = spawn_quiet("udevadm", &["control", "--reload"]);
-    println!("removed Astral Warden, the old name of GPU Warden");
-    init.stop_legacy();
-}
-
-pub fn migrate(_: Option<&str>) -> bool {
-    let legacy = std::env::current_exe().is_ok_and(|exe| exe == Path::new(LEGACY_BIN));
-    if !legacy || unsafe { libc::geteuid() } != 0 {
-        return false;
-    }
-
-    let config = config::default_path();
-    if !config.exists()
-        && let Some(dir) = config.parent()
-    {
-        let _ = fs::create_dir_all(dir);
-        let _ = fs::copy(LEGACY_CONFIG, &config);
-    }
-
-    match install(&config, false) {
-        Ok(()) => true,
-        Err(e) => {
-            crate::log!("moving to GPU Warden failed: {e}");
-            false
-        }
-    }
 }
 
 pub fn uninstall(_: bool) -> Result<(), String> {
@@ -549,7 +459,6 @@ pub fn uninstall(_: bool) -> Result<(), String> {
         let _ = spawn_quiet("systemctl", &["daemon-reload"]);
     }
 
-    retire_legacy(init);
     println!("uninstalled; nothing is left behind");
     Ok(())
 }

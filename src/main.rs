@@ -97,7 +97,7 @@ fn parse() -> Result<Args, String> {
                 config = std::path::absolute(&path).map_err(|e| format!("{}: {e}", path.display()))?;
                 explicit = true;
             }
-            "-V" | "--version" => command = Command::Print(version()),
+            "-V" | "--version" => command = Command::Print(concat!("gpu-warden ", env!("CARGO_PKG_VERSION"))),
             "-h" | "--help" => command = Command::Print(USAGE),
             other => return Err(format!("unknown argument {other:?}\n{USAGE}")),
         }
@@ -113,19 +113,6 @@ fn parse() -> Result<Args, String> {
         silent,
         updated,
     })
-}
-
-// Updaters up to 0.9.0 stage binaries named astral-warden and expect that name back.
-fn version() -> &'static str {
-    let legacy = std::env::current_exe()
-        .ok()
-        .and_then(|exe| Some(exe.file_name()?.to_string_lossy().starts_with("astral-warden")))
-        .unwrap_or(false);
-
-    match legacy {
-        true => concat!("astral-warden ", env!("CARGO_PKG_VERSION")),
-        false => concat!("gpu-warden ", env!("CARGO_PKG_VERSION")),
-    }
 }
 
 fn secret_name(device: &Device) -> String {
@@ -253,10 +240,6 @@ fn lock(wait: bool) -> Result<platform::Lock, String> {
 fn run(cfg: Config, config_path: &Path, wait: bool, silent: bool, updated: Option<String>) -> Result<(), String> {
     #[cfg(windows)]
     if platform::adopt(config_path) {
-        return Ok(());
-    }
-
-    if platform::migrate(updated.as_deref()) {
         return Ok(());
     }
 

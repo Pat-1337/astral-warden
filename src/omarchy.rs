@@ -18,7 +18,6 @@ const STALE_SECS: u64 = 5;
 const CLEAR_SCREEN: &str = "\x1b[H\x1b[2J";
 
 const PLUGIN_ID: &str = "pat-1337.gpu-warden";
-const LEGACY_PLUGIN_ID: &str = "pat-1337.astral-warden";
 const MANIFEST: &str = include_str!("../omarchy/manifest.json");
 const WIDGET: &str = include_str!("../omarchy/BarWidget.qml");
 
@@ -28,7 +27,6 @@ pub enum Action {
     Refresh,
     Update,
     Watch,
-    Migrate,
 }
 
 impl Action {
@@ -39,7 +37,6 @@ impl Action {
             Some("refresh") => Ok(Self::Refresh),
             Some("update") => Ok(Self::Update),
             Some("watch") => Ok(Self::Watch),
-            Some("migrate") => Ok(Self::Migrate),
             _ => Err("usage: gpu-warden omarchy [install|uninstall|update|watch]".into()),
         }
     }
@@ -51,7 +48,6 @@ impl Action {
             Self::Refresh => refresh(),
             Self::Update => request_update(),
             Self::Watch => watch(),
-            Self::Migrate => migrate(),
         }
     }
 }
@@ -285,15 +281,6 @@ fn refresh() -> Result<(), String> {
     }
 }
 
-fn migrate() -> Result<(), String> {
-    require_user()?;
-    let legacy = plugin_dir()?.with_file_name(LEGACY_PLUGIN_ID);
-
-    let _ = spawn_quiet("omarchy", &["plugin", "disable", LEGACY_PLUGIN_ID]);
-    let _ = fs::remove_dir_all(&legacy);
-    install()
-}
-
 fn for_widget_users(bin: &str, plugin: &str, action: &str) {
     use std::os::unix::fs::MetadataExt;
 
@@ -322,10 +309,6 @@ pub fn refresh_widgets() {
     if let Ok(exe) = std::env::current_exe() {
         for_widget_users(&exe.to_string_lossy(), PLUGIN_ID, "refresh");
     }
-}
-
-pub fn migrate_widgets(bin: &str) {
-    for_widget_users(bin, LEGACY_PLUGIN_ID, "migrate");
 }
 
 fn uninstall() -> Result<(), String> {
