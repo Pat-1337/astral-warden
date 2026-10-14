@@ -17,7 +17,7 @@ use gpu_warden::warden::Warden;
 use gpu_warden::{device, display, guard, log};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(not(updater))]
 const USAGE: &str =
@@ -26,7 +26,9 @@ const USAGE: &str =
 const USAGE: &str = "gpu-warden [run|status|install|uninstall|config|auto-update <on|off>] [--config <path>] [--wait] [--silent] [--background] [--watch]";
 #[cfg(all(updater, feature = "omarchy"))]
 const USAGE: &str = "gpu-warden [run|status|install|uninstall|config|auto-update <on|off>|omarchy <install|uninstall|update|watch>] [--config <path>] [--wait] [--silent] [--background] [--watch]";
-const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+const WAIT: Duration = Duration::from_secs(30);
+const DEVICE_WAIT: Duration = Duration::from_secs(180);
+const DEVICE_RETRY: Duration = Duration::from_secs(5);
 
 enum Command {
     Run,
@@ -124,6 +126,20 @@ fn open(cfg: &Config) -> Result<Device, String> {
     }
 
     Ok(device)
+}
+
+fn open_when_ready(cfg: &Config, wait: bool) -> Result<Device, String> {
+    let deadline = Instant::now() + DEVICE_WAIT;
+
+    loop {
+        match open(cfg) {
+            Err(e) if wait && Instant::now() < deadline => {
+                log!("{e}; retrying in {} s", DEVICE_RETRY.as_secs());
+                std::thread::sleep(DEVICE_RETRY);
+            }
+            other => return other,
+        }
+    }
 }
 
 fn watch_loop(sensor: &mut dyn Sensor, cap: &PowerCap, poll: Duration) -> Result<(), String> {
@@ -234,7 +250,7 @@ fn run(cfg: Config, config_path: &Path, wait: bool, silent: bool, updated: Optio
         pci,
         bus,
         sensor,
-    } = open(&cfg)?;
+    } = open_when_ready(&cfg, wait)?;
 
     log!("watching {name} {detail}");
     let mut cap = PowerCap::new(pci, bus, cfg.power_cap.percent, config::state_path());

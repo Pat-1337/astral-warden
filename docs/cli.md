@@ -21,7 +21,7 @@ gpu-warden [command] [flags]
 |---|---|
 | `--config <path>` | Use this config file. It must exist. |
 | `--watch` | With `status`: print a live line each poll interval, including the process's memory. |
-| `--wait` | With `run`: if another instance holds the lock, wait for it instead of exiting (used by the logon task). |
+| `--wait` | With `run`: if another instance holds the lock, wait for it instead of exiting, and retry finding the sensor for up to 3 minutes while drivers and USB devices come up after boot (used by the logon task). |
 | `--silent` | With `run`: no startup notification (used by the logon task). |
 | `--background` | With `install`/`uninstall`: no dialogs, and the running instance isn't restarted (used by the tray's **Start at logon**). |
 | `--secret` | ?? |

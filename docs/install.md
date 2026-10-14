@@ -23,6 +23,8 @@ Double-click `gpu-warden-<version>-windows-x86_64-setup.exe` and accept the UAC 
 | Apps list | **GPU Warden** in Settings → Apps → Installed apps |
 | Start | starts right away |
 
+Right after a reboot the NVIDIA driver or the WireView's COM port may not be ready at logon. The task then retries finding the sensor every 5 s for up to 3 minutes before giving up.
+
 With fast user switching, a second session waits (`--wait`) and takes over when the first logs off.
 
 Uninstall from **Settings → Apps → Installed apps → GPU Warden → Uninstall**, or run `gpu-warden uninstall`. It stops the running instance and removes everything: the program folder, config, log, state files, the logon task, registry entries, and update downloads. It also clears what Windows records about every program it runs: the MuiCache, UserAssist, Compatibility Assistant and tray icon entries, and the Prefetch files.
