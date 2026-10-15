@@ -81,7 +81,8 @@ The crate is a library, `gpu_warden`, plus the `gpu-warden` app built on it. The
 | `src/main.rs` | Command line |
 | `src/platform/windows/` | Tray, notifications, shutdown |
 | `src/platform/windows/install.rs` | Installer and portable install, logon task, power helper task, full uninstall |
-| `src/platform/windows/registry.rs` | Apps-list entry, autostart flag, and the traces uninstall clears |
+| `src/platform/windows/setup.rs` | Setup dialog: install folder and who it runs for |
+| `src/platform/windows/registry.rs` | Apps-list entry, autostart flag, install folder and scope, and the traces uninstall clears |
 | `src/platform/linux/` | Notifications, init install, poweroff |
 | `src/update.rs` | Self-update for Windows and Omarchy builds (`cfg(updater)`, set by `build.rs`) |
 | `src/sha256.rs` | SHA-256 for checking downloaded releases |

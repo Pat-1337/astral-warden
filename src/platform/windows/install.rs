@@ -1,3 +1,6 @@
+use super::scope::Scope;
+#[cfg(not(feature = "portable"))]
+use super::setup;
 use super::{CONSOLE, WINDOW_CLASS, hidden, log_path, registry, single_instance, wide};
 use gpu_warden::config::{self, Config};
 use gpu_warden::log;
@@ -58,7 +61,13 @@ fn known_dir(var: &str, fallback: &str) -> PathBuf {
 }
 
 fn install_dir() -> PathBuf {
-    known_dir("ProgramFiles", r"C:\Program Files").join("GPUWarden")
+    registry::install_dir().unwrap_or_else(|| known_dir("ProgramFiles", r"C:\Program Files").join("GPUWarden"))
+}
+
+fn installed_scope() -> Scope {
+    registry::scope()
+        .and_then(|scope| Scope::parse(&scope).ok())
+        .unwrap_or(Scope::AllUsers)
 }
 
 fn ours(text: &str) -> bool {
@@ -78,7 +87,7 @@ fn task_xml(description: &str, trigger: &str, principal: &str, exe: &Path, argum
         r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>{description}</Description></RegistrationInfo>
-  <Triggers><{trigger}><Enabled>true</Enabled></{trigger}></Triggers>
+  <Triggers>{trigger}</Triggers>
   <Principals>
     <Principal id="Author">{principal}<RunLevel>HighestAvailable</RunLevel></Principal>
   </Principals>
@@ -105,21 +114,26 @@ fn task_xml(description: &str, trigger: &str, principal: &str, exe: &Path, argum
     )
 }
 
-fn logon_xml(exe: &Path, config: &Path) -> String {
+fn logon_xml(exe: &Path, config: &Path, scope: &Scope) -> String {
     let arguments = format!("run --wait --silent --config \"{}\"", config.display());
-    task_xml(
-        "12V-2x6 per-pin watchdog",
-        "LogonTrigger",
-        "<GroupId>S-1-5-32-545</GroupId>",
-        exe,
-        &arguments,
-    )
+    let (trigger, principal) = match scope {
+        Scope::AllUsers => (
+            "<LogonTrigger><Enabled>true</Enabled></LogonTrigger>".to_owned(),
+            "<GroupId>S-1-5-32-545</GroupId>".to_owned(),
+        ),
+        Scope::User(sid) => (
+            format!("<LogonTrigger><Enabled>true</Enabled><UserId>{sid}</UserId></LogonTrigger>"),
+            format!("<UserId>{sid}</UserId><LogonType>InteractiveToken</LogonType>"),
+        ),
+    };
+
+    task_xml("12V-2x6 per-pin watchdog", &trigger, &principal, exe, &arguments)
 }
 
 fn helper_xml(exe: &Path) -> String {
     task_xml(
         "Sets the GPU power limit for GPU Warden when it runs without administrator rights",
-        "BootTrigger",
+        "<BootTrigger><Enabled>true</Enabled></BootTrigger>",
         "<UserId>S-1-5-18</UserId>",
         exe,
         "power-helper",
@@ -175,6 +189,20 @@ pub fn install_args(config: &Path, background: bool) -> String {
     format!("install --config \"{}\"{flag}", config.display())
 }
 
+fn setup_args(config: &Path, dir: Option<&Path>, scope: Option<&Scope>) -> String {
+    let mut args = install_args(config, false);
+
+    if let Some(dir) = dir {
+        args.push_str(&format!(" --dir \"{}\"", dir.display()));
+    }
+
+    if let Some(scope) = scope {
+        args.push_str(&format!(" --scope {}", scope.arg()));
+    }
+
+    args
+}
+
 pub fn uninstall_args(background: bool) -> String {
     format!("uninstall{}", if background { " --background" } else { "" })
 }
@@ -184,25 +212,51 @@ pub fn autostart_enabled() -> bool {
 }
 
 #[cfg(not(feature = "portable"))]
-fn target(current: &Path) -> Result<PathBuf, String> {
+fn lock_down(dir: &Path) -> Result<(), String> {
+    let dir = dir.to_string_lossy();
+    hidden(
+        "icacls",
+        &[
+            &dir,
+            "/inheritance:r",
+            "/grant:r",
+            "*S-1-5-18:(OI)(CI)F",
+            "*S-1-5-32-544:(OI)(CI)F",
+            "*S-1-5-32-545:(OI)(CI)RX",
+        ],
+    )
+    .map(drop)
+}
+
+#[cfg(not(feature = "portable"))]
+fn target(current: &Path, dir: Option<&Path>, scope: &Scope) -> Result<PathBuf, String> {
     if let Some(scoop) = scoop_current(current) {
         return Ok(scoop);
     }
 
-    let dir = install_dir();
+    let previous = install_dir();
+    let dir = dir.map_or_else(|| previous.clone(), setup::dedicated);
     let exe = dir.join(EXE);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    lock_down(&dir)?;
 
     if current != exe {
         retry(|| std::fs::copy(current, &exe)).map_err(|e| format!("{}: {e}", exe.display()))?;
     }
 
     registry::register(&exe)?;
+    registry::set_install(&dir, scope.arg())?;
+
+    if previous != dir && !current.starts_with(&previous) {
+        remove_dir(&previous);
+    }
+
     Ok(exe)
 }
 
 #[cfg(feature = "portable")]
-fn target(current: &Path) -> Result<PathBuf, String> {
+fn target(current: &Path, _: Option<&Path>, scope: &Scope) -> Result<PathBuf, String> {
+    registry::set_scope(scope.arg())?;
     Ok(scoop_current(current).unwrap_or_else(|| current.to_path_buf()))
 }
 
@@ -223,8 +277,8 @@ fn register_task(name: &str, xml: &str) -> Result<(), String> {
     created.map(drop)
 }
 
-fn create_task(exe: &Path, config: &Path) -> Result<(), String> {
-    register_task(TASK, &logon_xml(exe, config))?;
+fn create_task(exe: &Path, config: &Path, scope: &Scope) -> Result<(), String> {
+    register_task(TASK, &logon_xml(exe, config, scope))?;
     registry::set_autostart(true)
 }
 
@@ -255,11 +309,23 @@ pub fn power_helper() -> Result<(), String> {
 }
 
 pub fn install(config: &Path, background: bool) -> Result<(), String> {
+    install_to(config, background, None, None)
+}
+
+pub fn install_to(config: &Path, background: bool, dir: Option<&Path>, scope: Option<&str>) -> Result<(), String> {
+    let scope = scope.map(Scope::parse).transpose()?;
+
     if !is_admin() {
-        relaunch_elevated(&install_args(config, background), false)?;
+        let args = match background {
+            true => install_args(config, true),
+            false => setup_args(config, dir, scope.as_ref()),
+        };
+        relaunch_elevated(&args, false)?;
         println!("continuing elevated");
         return Ok(());
     }
+
+    let scope = scope.unwrap_or_else(installed_scope);
 
     if background {
         log::to_file(log_path());
@@ -269,13 +335,13 @@ pub fn install(config: &Path, background: bool) -> Result<(), String> {
     }
 
     let current = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe = target(&current)?;
+    let exe = target(&current, dir, &scope)?;
 
     if Config::write_default(config).map_err(|e| format!("{}: {e}", config.display()))? {
         println!("wrote {}", config.display());
     }
 
-    create_task(&exe, config)?;
+    create_task(&exe, config, &scope)?;
 
     if shared(&exe) && gpu_warden::power::helper_version().as_deref() != Some(VERSION) {
         start_helper(&exe)?;
@@ -288,14 +354,19 @@ pub fn install(config: &Path, background: bool) -> Result<(), String> {
 
     hidden("schtasks", &["/Run", "/TN", TASK])?;
 
+    let logon = match scope {
+        Scope::AllUsers => "every user's logon",
+        Scope::User(_) => "your logon",
+    };
+
     #[cfg(not(feature = "portable"))]
     report(&format!(
-        "Installed to {} and started. It runs at every logon, and the downloaded file can be deleted.",
+        "Installed to {} and started. It runs at {logon}, and the downloaded file can be deleted.",
         exe.display()
     ));
 
     #[cfg(feature = "portable")]
-    report(&format!("Started. {} now runs at every logon.", exe.display()));
+    report(&format!("Started. {} now runs at {logon}.", exe.display()));
 
     Ok(())
 }
@@ -310,7 +381,14 @@ pub fn adopt(config: &Path) -> bool {
         return false;
     }
 
-    if let Err(e) = install(config, false) {
+    let choice = setup::ask(&install_dir(), &installed_scope(), is_admin());
+    let installed = match choice {
+        Ok(None) => return true,
+        Ok(Some(choice)) => install_to(config, false, Some(&choice.dir), Some(choice.scope.arg())),
+        Err(e) => Err(e),
+    };
+
+    if let Err(e) = installed {
         report(&format!(
             "GPU Warden was not installed: {e}.\n\nThe portable version runs without installing."
         ));
@@ -438,6 +516,7 @@ pub fn uninstall(background: bool) -> Result<(), String> {
     stop_helper();
     close_running();
 
+    let dir = install_dir();
     registry::unregister();
     remove_data();
     forget_traces();
@@ -446,7 +525,10 @@ pub fn uninstall(background: bool) -> Result<(), String> {
     remove_leftovers(&current);
 
     #[cfg(not(feature = "portable"))]
-    remove_dir(&install_dir());
+    remove_dir(&dir);
+
+    #[cfg(feature = "portable")]
+    drop(dir);
 
     #[cfg(not(feature = "portable"))]
     report("GPU Warden is uninstalled. Nothing is left behind.");

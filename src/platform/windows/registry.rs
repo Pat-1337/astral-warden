@@ -1,5 +1,5 @@
 use gpu_warden::win::registry::{Key, Root, Value, delete, flag, text};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use windows_sys::Win32::System::Registry::{KEY_READ, KEY_SET_VALUE};
 
 const APP: &str = r"SOFTWARE\GPUWarden";
@@ -17,6 +17,26 @@ pub fn autostart() -> bool {
 
 pub fn set_autostart(enabled: bool) -> Result<(), String> {
     Key::create(APP)?.set("Autostart", Value::Number(u32::from(enabled)))
+}
+
+pub fn install_dir() -> Option<PathBuf> {
+    text(Root::Machine, APP, "InstallDir").map(PathBuf::from)
+}
+
+pub fn scope() -> Option<String> {
+    text(Root::Machine, APP, "Scope")
+}
+
+#[cfg(not(feature = "portable"))]
+pub fn set_install(dir: &Path, scope: &str) -> Result<(), String> {
+    let key = Key::create(APP)?;
+    key.set("InstallDir", Value::Text(&dir.to_string_lossy()))?;
+    key.set("Scope", Value::Text(scope))
+}
+
+#[cfg(feature = "portable")]
+pub fn set_scope(scope: &str) -> Result<(), String> {
+    Key::create(APP)?.set("Scope", Value::Text(scope))
 }
 
 pub fn register(exe: &Path) -> Result<(), String> {

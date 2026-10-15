@@ -1,10 +1,13 @@
 mod install;
 mod registry;
+mod scope;
+#[cfg(not(feature = "portable"))]
+mod setup;
 mod tray;
 
 use gpu_warden::win::{os_error, wide};
 
-pub use install::{adopt, install, power_helper, uninstall};
+pub use install::{adopt, install, install_to, power_helper, uninstall};
 
 use gpu_warden::config::{self, Config};
 use gpu_warden::display;

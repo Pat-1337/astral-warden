@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 const USAGE: &str =
     "gpu-warden [run|status|install|uninstall|config] [--config <path>] [--wait] [--silent] [--background] [--watch]";
 #[cfg(all(updater, not(feature = "omarchy")))]
-const USAGE: &str = "gpu-warden [run|status|install|uninstall|config|auto-update <on|off>] [--config <path>] [--wait] [--silent] [--background] [--watch]";
+const USAGE: &str = "gpu-warden [run|status|install|uninstall|config|auto-update <on|off>] [--config <path>] [--dir <path>] [--scope <all|SID>] [--wait] [--silent] [--background] [--watch]";
 #[cfg(all(updater, feature = "omarchy"))]
 const USAGE: &str = "gpu-warden [run|status|install|uninstall|config|auto-update <on|off>|omarchy <install|uninstall|update|watch>] [--config <path>] [--wait] [--silent] [--background] [--watch]";
 const WAIT: Duration = Duration::from_secs(30);
@@ -54,6 +54,10 @@ struct Args {
     watch: bool,
     silent: bool,
     updated: Option<String>,
+    #[cfg(windows)]
+    dir: Option<PathBuf>,
+    #[cfg(windows)]
+    scope: Option<String>,
 }
 
 fn parse() -> Result<Args, String> {
@@ -61,6 +65,8 @@ fn parse() -> Result<Args, String> {
     let (mut config, mut explicit, mut wait, mut background, mut watch, mut silent) =
         (config::default_path(), false, false, false, false, false);
     let mut updated = None;
+    #[cfg(windows)]
+    let (mut dir, mut scope) = (None, None);
     let mut args = std::env::args().skip(1);
 
     while let Some(arg) = args.next() {
@@ -84,6 +90,13 @@ fn parse() -> Result<Args, String> {
             }
             "--silent" => silent = true,
             "--wait" => wait = true,
+            #[cfg(windows)]
+            "--dir" => {
+                let path = PathBuf::from(args.next().ok_or("--dir needs a path")?);
+                dir = Some(std::path::absolute(&path).map_err(|e| format!("{}: {e}", path.display()))?);
+            }
+            #[cfg(windows)]
+            "--scope" => scope = Some(args.next().ok_or("--scope needs all or a user SID")?),
             "--background" => background = true,
             "--watch" => watch = true,
             "--secret" => display::enable_hex(),
@@ -108,6 +121,10 @@ fn parse() -> Result<Args, String> {
         watch,
         silent,
         updated,
+        #[cfg(windows)]
+        dir,
+        #[cfg(windows)]
+        scope,
     })
 }
 
@@ -287,6 +304,14 @@ fn main() -> ExitCode {
     platform::attach_console();
 
     let result = parse().and_then(|args| match args.command {
+        #[cfg(windows)]
+        Command::Install => platform::install_to(
+            &args.config,
+            args.background,
+            args.dir.as_deref(),
+            args.scope.as_deref(),
+        ),
+        #[cfg(not(windows))]
         Command::Install => platform::install(&args.config, args.background),
         Command::Uninstall => platform::uninstall(args.background),
         Command::Status => Config::load(&args.config, args.explicit).and_then(|cfg| status(&cfg, args.watch)),

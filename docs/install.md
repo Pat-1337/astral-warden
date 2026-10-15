@@ -13,13 +13,23 @@ Two builds, same program:
 
 ### Installer
 
-Double-click `gpu-warden-<version>-windows-x86_64-setup.exe` and accept the UAC prompt. It:
+Double-click `gpu-warden-<version>-windows-x86_64-setup.exe`. A setup dialog asks:
+
+| Choice | Options |
+|---|---|
+| Install folder | `C:\Program Files\GPUWarden` by default. **Change folder...** picks another location; it installs into a `GPUWarden` folder inside the one you pick. |
+| Who it runs for | **All users** (default): starts at every user's logon. **Only me**: starts only at the logon of the account that ran setup. |
+
+**Install** carries the UAC shield and asks for administrator rights. A standard user can enter an administrator's password there; **Only me** still means the standard user, because setup records who ran the dialog before it elevates. Running setup again shows the current folder and choice. Picking a new folder moves the install and removes the old folder.
+
+Setup then:
 
 | Step | Result |
 |---|---|
-| Copy binary | `C:\Program Files\GPUWarden\gpu-warden.exe`; the downloaded file can be deleted |
-| Default config | `C:\ProgramData\gpu-warden\config.toml` |
-| Scheduled task | `GPUWarden`, runs at every logon of any user with the highest privileges that user has, no time limit, restarts on failure |
+| Copy binary | `gpu-warden.exe` in the chosen folder; the downloaded file can be deleted |
+| Lock the folder | only SYSTEM and Administrators can write to it, and Users can read and run. The power helper runs from it as SYSTEM, so nobody else may change those files. |
+| Default config | `C:\ProgramData\gpu-warden\config.toml`, whatever the folder |
+| Scheduled task | `GPUWarden`, runs at logon (every user's, or only yours) with the highest privileges that user has, no time limit, restarts on failure |
 | Power helper | `GPUWardenPower`, runs at boot as SYSTEM; sets the power limit and installs updates for users without administrator rights |
 | Apps list | **GPU Warden** in Settings → Apps → Installed apps |
 | Start | starts right away |

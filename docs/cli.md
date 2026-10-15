@@ -24,6 +24,8 @@ gpu-warden [command] [flags]
 | `--watch` | With `status`: print a live line each poll interval, including the process's memory. |
 | `--wait` | With `run`: if another instance holds the lock, wait for it instead of exiting, and retry finding the sensor for up to 3 minutes while drivers and USB devices come up after boot (used by the logon task). |
 | `--silent` | With `run`: no startup notification (used by the logon task). |
+| `--dir <path>` | Windows, with `install`: install into this folder. A `GPUWarden` folder is added unless the path already ends in one. Defaults to the current install, or `C:\Program Files\GPUWarden`. |
+| `--scope <all\|SID>` | Windows, with `install`: `all` starts at every user's logon; a user SID (`S-1-5-21-...`) starts only at that user's logon. Defaults to the current install's scope, or `all`. |
 | `--background` | With `install`/`uninstall`: no dialogs, and the running instance isn't restarted (used by the tray's **Start at logon**). |
 | `--secret` | ?? |
 | `--version`, `--help` | |
