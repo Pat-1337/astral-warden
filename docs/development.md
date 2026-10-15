@@ -7,6 +7,16 @@ cargo fmt --check
 cargo clippy --release --features omarchy -- -D warnings
 ```
 
+## Pre-commit
+
+`.pre-commit-config.yaml` runs `cargo fmt --check` and clippy with `-D warnings` for the host, the Windows target, and the `omarchy` feature on every commit that touches Rust files:
+
+```sh
+rustup target add x86_64-pc-windows-gnu
+pre-commit install
+pre-commit run --all-files
+```
+
 ## Dry run without hardware
 
 Works on any OS, macOS included:
@@ -59,10 +69,10 @@ The crate is a library, `gpu_warden`, plus the `gpu-warden` app built on it. The
 | `src/device/` | Finding and opening a sensor: sysfs and i2c-dev on Linux, NVAPI and HWiNFO on Windows, WireView on both |
 | `src/guard.rs` | State machine (pure, no I/O) |
 | `src/warden.rs` | Glues sensor, guard, power cap, and notifications |
-| `src/power.rs` | NVML power limit (loaded at runtime) |
+| `src/power.rs` | NVML power limit (loaded at runtime), and the Windows power helper that sets it for unelevated instances |
 | `src/config.rs` | Settings and their paths |
 | `src/display.rs` | Number and name formatting for everything shown to users |
-| `src/win/` | Windows string and registry helpers |
+| `src/win/` | Windows string, registry, and named pipe helpers |
 
 ### App
 
@@ -70,7 +80,7 @@ The crate is a library, `gpu_warden`, plus the `gpu-warden` app built on it. The
 |---|---|
 | `src/main.rs` | Command line |
 | `src/platform/windows/` | Tray, notifications, shutdown |
-| `src/platform/windows/install.rs` | Installer and portable install, logon task, full uninstall |
+| `src/platform/windows/install.rs` | Installer and portable install, logon task, power helper task, full uninstall |
 | `src/platform/windows/registry.rs` | Apps-list entry, autostart flag, and the traces uninstall clears |
 | `src/platform/linux/` | Notifications, init install, poweroff |
 | `src/update.rs` | Self-update for Windows and Omarchy builds (`cfg(updater)`, set by `build.rs`) |

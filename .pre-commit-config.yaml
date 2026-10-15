@@ -1,0 +1,30 @@
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --locked --all-targets -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy-windows
+        name: cargo clippy (windows)
+        entry: cargo clippy --locked --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy-omarchy
+        name: cargo clippy (omarchy)
+        entry: cargo clippy --locked --all-targets --features omarchy -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
