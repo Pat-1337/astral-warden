@@ -23,3 +23,11 @@ jobs:
         run: cargo clippy --release --features omarchy -- -D warnings
       - if: runner.os == 'Windows'
         run: cargo clippy --release --features portable -- -D warnings
+
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      - run: nix flake check -L
+      - run: nix run nixpkgs#nixfmt -- --check flake.nix packaging/nix/*.nix

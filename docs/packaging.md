@@ -48,6 +48,56 @@ The package was test-built in an `archlinux` container (x86_64 under emulation; 
 updpkgsums && makepkg -f && namcap PKGBUILD *.pkg.tar.zst
 ```
 
+## Nix
+
+`flake.nix` builds from source for `x86_64-linux` and `aarch64-linux`, with `Cargo.lock` pinning the crates and `flake.lock` pinning nixpkgs. `packaging/nix/` holds the package and the NixOS module.
+
+| Output | What |
+|---|---|
+| `packages.<system>.default` | `bin/gpu-warden`, `lib/libgpu_warden.so`, `include/gpu_warden.h`, the udev rule, and the `i2c-dev` modules-load file |
+| `overlays.default` | adds `pkgs.gpu-warden` |
+| `nixosModules.default` | `services.gpu-warden` |
+| `checks.<system>` | builds the package and evaluates the module |
+
+Try it without installing:
+
+```
+nix run github:Pat-1337/gpu-warden -- status
+```
+
+On NixOS, add the flake as an input and import the module:
+
+```nix
+{
+  inputs.gpu-warden.url = "github:Pat-1337/gpu-warden";
+
+  outputs = { nixpkgs, gpu-warden, ... }: {
+    nixosConfigurations.pc = nixpkgs.lib.nixosSystem {
+      modules = [
+        gpu-warden.nixosModules.default
+        {
+          services.gpu-warden = {
+            enable = true;
+            settings.power_cap.percent = 70;
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+The module:
+
+| Sets | Value |
+|---|---|
+| `boot.kernelModules` | `i2c-dev` |
+| `services.udev.packages` | the package, for the rule that keeps ModemManager off the WireView Pro II |
+| `/etc/gpu-warden/config.toml` | generated from `settings`; unset keys keep their defaults (`gpu-warden config` prints them) |
+| `systemd.services.gpu-warden` | runs as root at boot, restarts on failure and when `settings` change |
+
+The wrapper puts `notify-send`, `runuser`, and `wall` on `PATH` and adds `/run/opengl-driver/lib` to `LD_LIBRARY_PATH`, where NixOS keeps `libnvidia-ml.so` for the power cap. The Nix build doesn't update itself, and `gpu-warden install` isn't used; `nix flake update` and a rebuild move to a new version.
+
 ## Windows release files
 
 | File | Build |

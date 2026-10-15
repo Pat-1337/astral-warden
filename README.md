@@ -12,11 +12,9 @@
 
 ## Hardware
 
-| Sensor | Where it sits |
-|---|---|
-| ASUS ROG Astral RTX 5090 and 5080 | on the card |
-| ASUS ROG Matrix RTX 5090 | on the card |
-| Thermal Grizzly WireView Pro II | between the cable and any card, over USB |
+- ASUS ROG Astral RTX 5090 and 5080
+- ASUS ROG Matrix RTX 5090
+- Thermal Grizzly WireView Pro II
 
 The full list of boards is in [hardware](docs/hardware.md).
 
@@ -46,6 +44,14 @@ Works with systemd, OpenRC and runit. From the extracted release folder:
 
 ```
 sudo ./gpu-warden install
+```
+
+### NixOS
+
+The flake has a package and a NixOS module. See [Packaging](docs/packaging.md#nix).
+
+```nix
+services.gpu-warden.enable = true;
 ```
 
 ### Omarchy

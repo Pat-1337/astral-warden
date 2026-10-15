@@ -15,6 +15,7 @@ Package-managed installs are left to their package manager:
 | Omarchy archive (`/usr/local/bin/gpu-warden`) | itself |
 | Scoop | `scoop update gpu-warden` |
 | AUR (`/usr/bin/gpu-warden`) | pacman / your AUR helper |
+| Nix flake | `nix flake update` and a rebuild |
 | other Linux archives | not updated; download the new release |
 
 Turn it on or off from the Windows tray (**Auto update**), or with `gpu-warden auto-update <on|off>` (`sudo` on Linux).
