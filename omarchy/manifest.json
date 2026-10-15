@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "pat-1337.gpu-warden",
+  "id": "patvuk.gpu-warden",
   "name": "GPU Warden",
   "version": "@VERSION@",
-  "author": "Pat-1337",
+  "author": "patvuk",
   "license": "MIT",
   "description": "Per-pin 12V-2x6 readings from the gpu-warden service",
   "kinds": [

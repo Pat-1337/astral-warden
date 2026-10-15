@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-const REPO: &str = "https://github.com/Pat-1337/gpu-warden";
+const REPO: &str = "https://github.com/patvuk/gpu-warden";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const NETWORK_WAIT: Duration = Duration::from_secs(30);
 const TOOL_TIMEOUT: Duration = Duration::from_secs(300);

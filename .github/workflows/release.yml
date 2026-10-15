@@ -139,7 +139,7 @@ jobs:
           pkgbuild: packaging/aur/PKGBUILD
           assets: packaging/aur/gpu-warden.install
           updpkgsums: true
-          commit_username: Pat-1337
+          commit_username: patvuk
           commit_email: ${{ secrets.AUR_EMAIL }}
           ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           commit_message: update to ${{ github.ref_name }}

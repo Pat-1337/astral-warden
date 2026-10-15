@@ -5,9 +5,9 @@
 <p align="center">Per-pin 12V-2x6 watchdog for Windows 11 and Linux</p>
 
 <p align="center">
-  <a href="https://github.com/Pat-1337/gpu-warden/actions/workflows/ci.yml"><img src="https://github.com/Pat-1337/gpu-warden/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
-  <a href="https://github.com/Pat-1337/gpu-warden/releases/latest"><img src="https://img.shields.io/github/v/release/Pat-1337/gpu-warden" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/Pat-1337/gpu-warden" alt="License"></a>
+  <a href="https://github.com/patvuk/gpu-warden/actions/workflows/ci.yml"><img src="https://github.com/patvuk/gpu-warden/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/patvuk/gpu-warden/releases/latest"><img src="https://img.shields.io/github/v/release/patvuk/gpu-warden" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/patvuk/gpu-warden" alt="License"></a>
 </p>
 
 ## Hardware
@@ -35,7 +35,7 @@ Download the setup exe from [Releases](../../releases) and run it. It installs, 
 To keep everything in one folder instead, use the portable zip, or Scoop:
 
 ```
-scoop install https://github.com/Pat-1337/gpu-warden/releases/latest/download/gpu-warden.json
+scoop install https://github.com/patvuk/gpu-warden/releases/latest/download/gpu-warden.json
 ```
 
 ### Linux

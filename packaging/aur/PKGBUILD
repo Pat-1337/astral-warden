@@ -1,11 +1,11 @@
-# Maintainer: Pat-1337 <https://github.com/Pat-1337>
+# Maintainer: patvuk <https://github.com/patvuk>
 
 pkgname=gpu-warden-bin
 pkgver=0.5.0
 pkgrel=1
 pkgdesc='Per-pin 12V-2x6 watchdog for ASUS ROG Astral and Matrix GPUs and the WireView Pro II'
 arch=('x86_64')
-url='https://github.com/Pat-1337/gpu-warden'
+url='https://github.com/patvuk/gpu-warden'
 license=('MIT')
 depends=('glibc')
 optdepends=('nvidia-utils: GPU power cap through NVML' 'libnotify: desktop notifications')

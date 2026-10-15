@@ -117,7 +117,7 @@ fn version_info() -> Vec<u8> {
     .collect();
 
     let strings = [
-        ("CompanyName", "Pat-1337"),
+        ("CompanyName", "patvuk"),
         ("FileDescription", NAME),
         ("FileVersion", version.as_str()),
         ("InternalName", "gpu-warden"),

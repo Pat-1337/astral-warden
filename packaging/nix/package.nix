@@ -51,7 +51,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     inherit (manifest) description;
-    homepage = "https://github.com/Pat-1337/gpu-warden";
+    homepage = "https://github.com/patvuk/gpu-warden";
     license = lib.licenses.mit;
     platforms = lib.platforms.linux;
     mainProgram = "gpu-warden";

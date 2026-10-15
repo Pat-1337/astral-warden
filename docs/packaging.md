@@ -5,7 +5,7 @@
 Each release attaches `gpu-warden.json`, a Scoop manifest generated from `packaging/scoop/gpu-warden.json` with the version and portable zip hash filled in. Scoop installs the portable build and persists `gpu-warden.toml` and `gpu-warden.log` across updates.
 
 ```
-scoop install https://github.com/Pat-1337/gpu-warden/releases/latest/download/gpu-warden.json
+scoop install https://github.com/patvuk/gpu-warden/releases/latest/download/gpu-warden.json
 ```
 
 `scoop update gpu-warden` re-reads that URL, so it always moves to the latest release. You don't need a bucket repo.
@@ -62,14 +62,14 @@ updpkgsums && makepkg -f && namcap PKGBUILD *.pkg.tar.zst
 Try it without installing:
 
 ```
-nix run github:Pat-1337/gpu-warden -- status
+nix run github:patvuk/gpu-warden -- status
 ```
 
 On NixOS, add the flake as an input and import the module:
 
 ```nix
 {
-  inputs.gpu-warden.url = "github:Pat-1337/gpu-warden";
+  inputs.gpu-warden.url = "github:patvuk/gpu-warden";
 
   outputs = { nixpkgs, gpu-warden, ... }: {
     nixosConfigurations.pc = nixpkgs.lib.nixosSystem {

@@ -17,7 +17,7 @@ gpu-warden omarchy install
 gpu-warden omarchy uninstall
 ```
 
-`install` writes the plugin to `~/.config/omarchy/plugins/pat-1337.gpu-warden/` and enables it in the right section of the bar. Move it with `omarchy bar move pat-1337.gpu-warden --section <left|center|right>`.
+`install` writes the plugin to `~/.config/omarchy/plugins/patvuk.gpu-warden/` and enables it in the right section of the bar. Move it with `omarchy bar move patvuk.gpu-warden --section <left|center|right>`.
 
 ## Widget
 

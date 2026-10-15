@@ -5,8 +5,8 @@ import qs.Ui
 
 Panel {
   id: root
-  moduleName: "pat-1337.gpu-warden"
-  ipcTarget: "pat-1337.gpu-warden"
+  moduleName: "patvuk.gpu-warden"
+  ipcTarget: "patvuk.gpu-warden"
 
   readonly property string statusPath: "/run/gpu-warden/status.json"
   readonly property string configPath: "/etc/gpu-warden/config.toml"
@@ -400,7 +400,7 @@ Panel {
           ActionButton {
             iconText: "󰋼"
             text: "About"
-            onClicked: root.run("xdg-open https://github.com/Pat-1337/gpu-warden")
+            onClicked: root.run("xdg-open https://github.com/patvuk/gpu-warden")
           }
         }
       }

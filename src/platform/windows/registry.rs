@@ -48,8 +48,8 @@ pub fn register(exe: &Path) -> Result<(), String> {
     let key = Key::create(UNINSTALL)?;
     key.set("DisplayName", Value::Text("GPU Warden"))?;
     key.set("DisplayVersion", Value::Text(env!("CARGO_PKG_VERSION")))?;
-    key.set("Publisher", Value::Text("Pat-1337"))?;
-    key.set("URLInfoAbout", Value::Text("https://github.com/Pat-1337/gpu-warden"))?;
+    key.set("Publisher", Value::Text("patvuk"))?;
+    key.set("URLInfoAbout", Value::Text("https://github.com/patvuk/gpu-warden"))?;
     key.set("DisplayIcon", Value::Text(&exe_text))?;
     key.set("InstallLocation", Value::Text(&dir))?;
     key.set("UninstallString", Value::Text(&uninstall))?;

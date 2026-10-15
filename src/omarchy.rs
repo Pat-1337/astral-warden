@@ -14,7 +14,8 @@ const PUBLISH_EVERY: Duration = Duration::from_secs(1);
 const STALE_SECS: u64 = 5;
 const CLEAR_SCREEN: &str = "\x1b[H\x1b[2J";
 
-const PLUGIN_ID: &str = "pat-1337.gpu-warden";
+const PLUGIN_ID: &str = "patvuk.gpu-warden";
+const LEGACY_ID: &str = "pat-1337.gpu-warden";
 const MANIFEST: &str = include_str!("../omarchy/manifest.json");
 const WIDGET: &str = include_str!("../omarchy/BarWidget.qml");
 
@@ -234,14 +235,14 @@ fn watch() -> Result<(), String> {
     }
 }
 
-fn plugin_dir() -> Result<PathBuf, String> {
+fn plugin_dir(id: &str) -> Result<PathBuf, String> {
     let config = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
         .ok_or("HOME is not set")?;
 
-    Ok(config.join("omarchy").join("plugins").join(PLUGIN_ID))
+    Ok(config.join("omarchy").join("plugins").join(id))
 }
 
 fn require_user() -> Result<(), String> {
@@ -251,9 +252,17 @@ fn require_user() -> Result<(), String> {
     }
 }
 
+fn remove_legacy() {
+    let _ = spawn_quiet("omarchy", &["plugin", "disable", LEGACY_ID]);
+    if let Ok(dir) = plugin_dir(LEGACY_ID) {
+        let _ = fs::remove_dir_all(dir);
+    }
+}
+
 fn install() -> Result<(), String> {
     require_user()?;
-    let dir = plugin_dir()?;
+    remove_legacy();
+    let dir = plugin_dir(PLUGIN_ID)?;
     write_plugin(&dir)?;
 
     let _ = spawn_quiet("omarchy-shell", &["shell", "rescanPlugins"]);
@@ -279,7 +288,11 @@ fn write_plugin(dir: &Path) -> Result<(), String> {
 
 fn refresh() -> Result<(), String> {
     require_user()?;
-    let dir = plugin_dir()?;
+    let dir = plugin_dir(PLUGIN_ID)?;
+
+    if plugin_dir(LEGACY_ID)?.is_dir() {
+        return install();
+    }
 
     match dir.is_dir() {
         true => write_plugin(&dir),
@@ -287,7 +300,7 @@ fn refresh() -> Result<(), String> {
     }
 }
 
-fn for_widget_users(bin: &str, plugin: &str, action: &str) {
+fn for_widget_users(bin: &str, plugins: &[&str], action: &str) {
     use std::os::unix::fs::MetadataExt;
 
     let Ok(homes) = fs::read_dir("/home") else {
@@ -295,7 +308,10 @@ fn for_widget_users(bin: &str, plugin: &str, action: &str) {
     };
 
     for home in homes.flatten().map(|e| e.path()) {
-        let Ok(meta) = fs::metadata(home.join(".config/omarchy/plugins").join(plugin)) else {
+        let Some(meta) = plugins
+            .iter()
+            .find_map(|plugin| fs::metadata(home.join(".config/omarchy/plugins").join(plugin)).ok())
+        else {
             continue;
         };
         let Some(user) = crate::platform::user_name(meta.uid()) else {
@@ -313,13 +329,14 @@ fn for_widget_users(bin: &str, plugin: &str, action: &str) {
 
 pub fn refresh_widgets() {
     if let Ok(exe) = std::env::current_exe() {
-        for_widget_users(&exe.to_string_lossy(), PLUGIN_ID, "refresh");
+        for_widget_users(&exe.to_string_lossy(), &[PLUGIN_ID, LEGACY_ID], "refresh");
     }
 }
 
 fn uninstall() -> Result<(), String> {
     require_user()?;
-    let dir = plugin_dir()?;
+    remove_legacy();
+    let dir = plugin_dir(PLUGIN_ID)?;
 
     let _ = spawn_quiet("omarchy", &["plugin", "disable", PLUGIN_ID]);
     match fs::remove_dir_all(&dir) {
