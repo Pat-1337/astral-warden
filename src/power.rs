@@ -8,6 +8,11 @@ type Ret = u32;
 type Device = *mut c_void;
 
 #[cfg(windows)]
+const NO_PERMISSION: Ret = 4;
+#[cfg(windows)]
+const HELPER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+#[cfg(windows)]
 const NVML: &[&str] = &["nvml.dll", r"C:\Program Files\NVIDIA Corporation\NVSMI\nvml.dll"];
 #[cfg(not(windows))]
 const NVML: &[&str] = &["libnvidia-ml.so.1", "libnvidia-ml.so"];
@@ -15,6 +20,10 @@ const NVML: &[&str] = &["libnvidia-ml.so.1", "libnvidia-ml.so"];
 struct Nvml {
     _lib: Library,
     dev: Device,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pci: PciId,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    bus: Option<u32>,
     error_string: unsafe extern "C" fn(Ret) -> *const c_char,
     get_limit: unsafe extern "C" fn(Device, *mut u32) -> Ret,
     set_limit: unsafe extern "C" fn(Device, u32) -> Ret,
@@ -64,6 +73,8 @@ impl Nvml {
                 set_limit: sym!("nvmlDeviceSetPowerManagementLimit"),
                 usage: sym!("nvmlDeviceGetPowerUsage"),
                 dev: std::ptr::null_mut(),
+                pci,
+                bus,
                 default_mw: 0,
                 min_mw: 0,
                 max_mw: 0,
@@ -105,6 +116,26 @@ impl Nvml {
             code => Err(unsafe { CStr::from_ptr((self.error_string)(code)) }
                 .to_string_lossy()
                 .into_owned()),
+        }
+    }
+
+    fn set(&self, mw: u32) -> Result<(), String> {
+        match unsafe { (self.set_limit)(self.dev, mw) } {
+            #[cfg(windows)]
+            NO_PERMISSION => self.delegate(mw),
+            ret => self.check(ret),
+        }
+    }
+
+    #[cfg(windows)]
+    fn delegate(&self, mw: u32) -> Result<(), String> {
+        let (device, subsystem) = self.pci.dwords();
+        let bus = self.bus.map_or("-".into(), |b| b.to_string());
+        let line = format!("set {device} {subsystem} {bus} {mw}");
+
+        match crate::win::pipe::request(crate::win::pipe::POWER, line, HELPER_TIMEOUT)?.as_str() {
+            "ok" => Ok(()),
+            reply => Err(reply.trim_start_matches("error: ").to_owned()),
         }
     }
 
@@ -192,7 +223,7 @@ impl PowerCap {
         let target = Self::target_mw(nvml, self.percent);
 
         if current > target {
-            nvml.check(unsafe { (nvml.set_limit)(nvml.dev, target) })?;
+            nvml.set(target)?;
         }
 
         if self.saved_mw.is_none() {
@@ -217,7 +248,7 @@ impl PowerCap {
 
         let current = nvml.query(nvml.get_limit)?;
         if current < saved {
-            nvml.check(unsafe { (nvml.set_limit)(nvml.dev, saved) })?;
+            nvml.set(saved)?;
         }
 
         self.saved_mw = None;
@@ -232,4 +263,91 @@ impl Drop for PowerCap {
             let _ = self.release();
         }
     }
+}
+
+#[cfg(windows)]
+struct Guarded {
+    nvml: Nvml,
+    ceiling_mw: u32,
+}
+
+#[cfg(windows)]
+impl Guarded {
+    fn open(pci: PciId, bus: Option<u32>) -> Result<Self, String> {
+        let nvml = Nvml::open(pci, bus)?;
+        let ceiling_mw = nvml.default_mw.max(nvml.query(nvml.get_limit)?);
+        Ok(Self { nvml, ceiling_mw })
+    }
+
+    fn set(&self, mw: u32) -> Result<(), String> {
+        if !(self.nvml.min_mw..=self.ceiling_mw).contains(&mw) {
+            return Err(format!(
+                "{} W is outside {}..{} W",
+                mw / 1000,
+                self.nvml.min_mw / 1000,
+                self.ceiling_mw / 1000
+            ));
+        }
+
+        self.nvml.check(unsafe { (self.nvml.set_limit)(self.nvml.dev, mw) })
+    }
+}
+
+#[cfg(windows)]
+fn parse_set(line: &str) -> Option<(PciId, Option<u32>, u32)> {
+    let mut parts = line.strip_prefix("set ")?.split(' ');
+    let (device, subsystem) = (parts.next()?.parse().ok()?, parts.next()?.parse().ok()?);
+    let bus = match parts.next()? {
+        "-" => None,
+        bus => Some(bus.parse().ok()?),
+    };
+    let mw = parts.next()?.parse().ok()?;
+
+    parts
+        .next()
+        .is_none()
+        .then(|| (PciId::from_dwords(device, subsystem), bus, mw))
+}
+
+#[cfg(windows)]
+fn handle(devices: &std::sync::Mutex<Vec<Guarded>>, line: &str) -> Result<(), String> {
+    let (pci, bus, mw) = parse_set(line).ok_or("bad request")?;
+    let mut devices = devices.lock().unwrap_or_else(|e| e.into_inner());
+
+    let index = match devices.iter().position(|d| d.nvml.pci == pci && d.nvml.bus == bus) {
+        Some(index) => index,
+        None => {
+            devices.push(Guarded::open(pci, bus)?);
+            devices.len() - 1
+        }
+    };
+
+    devices[index].set(mw)?;
+    log!("power limit set to {} W for {pci}", mw / 1000);
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn serve(extra: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Result<(), String> {
+    let devices = std::sync::Mutex::new(Vec::new());
+
+    crate::win::pipe::serve(crate::win::pipe::POWER, move |line| {
+        if line == "version" {
+            return env!("CARGO_PKG_VERSION").to_owned();
+        }
+
+        if let Some(reply) = extra(line) {
+            return reply;
+        }
+
+        match handle(&devices, line) {
+            Ok(()) => "ok".into(),
+            Err(e) => format!("error: {e}"),
+        }
+    })
+}
+
+#[cfg(windows)]
+pub fn helper_version() -> Option<String> {
+    crate::win::pipe::request(crate::win::pipe::POWER, "version".into(), HELPER_TIMEOUT).ok()
 }

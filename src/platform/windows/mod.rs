@@ -4,7 +4,7 @@ mod tray;
 
 use gpu_warden::win::{os_error, wide};
 
-pub use install::{adopt, install, uninstall};
+pub use install::{adopt, install, power_helper, uninstall};
 
 use gpu_warden::config::{self, Config};
 use gpu_warden::display;

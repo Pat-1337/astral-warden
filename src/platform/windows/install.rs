@@ -16,20 +16,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 const TASK: &str = "GPUWarden";
+const HELPER: &str = "GPUWardenPower";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg(not(feature = "portable"))]
 const EXE: &str = "gpu-warden.exe";
 const NAMES: &[&str] = &["gpu-warden", "gpuwarden"];
-const LATE_CLEANUP: &str = r#"Start-Sleep 15
-$n = 'gpu-warden|gpuwarden'
-foreach ($k in 'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache',
-               'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Store') {
-    $key = Get-Item -LiteralPath $k -ErrorAction SilentlyContinue
-    if ($key) { $key.Property | Where-Object { $_ -match $n } | ForEach-Object { Remove-ItemProperty -LiteralPath $k -Name $_ } }
-}
-Get-ChildItem 'HKCU:\Control Panel\NotifyIconSettings' -ErrorAction SilentlyContinue |
-    Where-Object { (Get-ItemProperty -LiteralPath $_.PSPath).ExecutablePath -match $n } |
-    Remove-Item -Recurse
-Remove-Item "$env:SystemRoot\Prefetch\GPU-WARDEN*.pf" -Force -ErrorAction SilentlyContinue"#;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const RETRY: Duration = Duration::from_millis(250);
 
@@ -82,14 +73,14 @@ fn xml_escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
-fn task_xml(exe: &Path, config: &Path) -> String {
+fn task_xml(description: &str, trigger: &str, principal: &str, exe: &Path, arguments: &str) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>12V-2x6 per-pin watchdog</Description></RegistrationInfo>
-  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
+  <RegistrationInfo><Description>{description}</Description></RegistrationInfo>
+  <Triggers><{trigger}><Enabled>true</Enabled></{trigger}></Triggers>
   <Principals>
-    <Principal id="Author"><GroupId>S-1-5-32-545</GroupId><RunLevel>HighestAvailable</RunLevel></Principal>
+    <Principal id="Author">{principal}<RunLevel>HighestAvailable</RunLevel></Principal>
   </Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
@@ -105,13 +96,38 @@ fn task_xml(exe: &Path, config: &Path) -> String {
     <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>
   </Settings>
   <Actions Context="Author">
-    <Exec><Command>"{}"</Command><Arguments>run --wait --silent --config "{}"</Arguments></Exec>
+    <Exec><Command>"{}"</Command><Arguments>{}</Arguments></Exec>
   </Actions>
 </Task>
 "#,
         xml_escape(&exe.to_string_lossy()),
-        xml_escape(&config.to_string_lossy())
+        xml_escape(arguments)
     )
+}
+
+fn logon_xml(exe: &Path, config: &Path) -> String {
+    let arguments = format!("run --wait --silent --config \"{}\"", config.display());
+    task_xml(
+        "12V-2x6 per-pin watchdog",
+        "LogonTrigger",
+        "<GroupId>S-1-5-32-545</GroupId>",
+        exe,
+        &arguments,
+    )
+}
+
+fn helper_xml(exe: &Path) -> String {
+    task_xml(
+        "Sets the GPU power limit for GPU Warden when it runs without administrator rights",
+        "BootTrigger",
+        "<UserId>S-1-5-18</UserId>",
+        exe,
+        "power-helper",
+    )
+}
+
+fn shared(exe: &Path) -> bool {
+    cfg!(not(feature = "portable")) && exe.starts_with(install_dir())
 }
 
 pub fn is_admin() -> bool {
@@ -190,22 +206,52 @@ fn target(current: &Path) -> Result<PathBuf, String> {
     Ok(scoop_current(current).unwrap_or_else(|| current.to_path_buf()))
 }
 
-fn create_task(exe: &Path, config: &Path) -> Result<(), String> {
-    let xml_path = std::env::temp_dir().join("gpu-warden-task.xml");
+fn register_task(name: &str, xml: &str) -> Result<(), String> {
+    let xml_path = std::env::temp_dir().join(format!("gpu-warden-{name}.xml"));
     let bytes: Vec<u8> = [0xFEFF]
         .into_iter()
-        .chain(task_xml(exe, config).encode_utf16())
+        .chain(xml.encode_utf16())
         .flat_map(u16::to_le_bytes)
         .collect();
     std::fs::write(&xml_path, bytes).map_err(|e| format!("{}: {e}", xml_path.display()))?;
 
     let created = hidden(
         "schtasks",
-        &["/Create", "/F", "/TN", TASK, "/XML", &xml_path.to_string_lossy()],
+        &["/Create", "/F", "/TN", name, "/XML", &xml_path.to_string_lossy()],
     );
     let _ = std::fs::remove_file(&xml_path);
-    created?;
+    created.map(drop)
+}
+
+fn create_task(exe: &Path, config: &Path) -> Result<(), String> {
+    register_task(TASK, &logon_xml(exe, config))?;
     registry::set_autostart(true)
+}
+
+fn start_helper(exe: &Path) -> Result<(), String> {
+    let _ = hidden("schtasks", &["/End", "/TN", HELPER]);
+    register_task(HELPER, &helper_xml(exe))?;
+    hidden("schtasks", &["/Run", "/TN", HELPER]).map(drop)
+}
+
+fn stop_helper() {
+    let _ = hidden("schtasks", &["/End", "/TN", HELPER]);
+    let _ = hidden("schtasks", &["/Delete", "/F", "/TN", HELPER]);
+}
+
+pub fn power_helper() -> Result<(), String> {
+    CONSOLE.store(true, Ordering::Relaxed);
+    log::to_file(log_path().with_file_name("power-helper.log"));
+    log::arm();
+    log!("power helper {VERSION} started");
+
+    if let Ok(exe) = std::env::current_exe()
+        && shared(&exe)
+    {
+        let _ = registry::register(&exe);
+    }
+
+    gpu_warden::power::serve(crate::update::serve)
 }
 
 pub fn install(config: &Path, background: bool) -> Result<(), String> {
@@ -219,6 +265,7 @@ pub fn install(config: &Path, background: bool) -> Result<(), String> {
         log::to_file(log_path());
     } else {
         let _ = hidden("schtasks", &["/End", "/TN", TASK]);
+        let _ = hidden("schtasks", &["/End", "/TN", HELPER]);
     }
 
     let current = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -229,6 +276,10 @@ pub fn install(config: &Path, background: bool) -> Result<(), String> {
     }
 
     create_task(&exe, config)?;
+
+    if shared(&exe) && gpu_warden::power::helper_version().as_deref() != Some(VERSION) {
+        start_helper(&exe)?;
+    }
 
     if background {
         log!("logon task registered for {}", exe.display());
@@ -278,8 +329,16 @@ pub fn refresh_registration() {
         return;
     };
 
-    if cfg!(not(feature = "portable")) && is_admin() && current.starts_with(install_dir()) {
-        let _ = registry::register(&current);
+    if !is_admin() || !shared(&current) {
+        return;
+    }
+
+    let _ = registry::register(&current);
+
+    if gpu_warden::power::helper_version().as_deref() != Some(VERSION)
+        && let Err(e) = start_helper(&current)
+    {
+        log!("power helper: {e}");
     }
 }
 
@@ -337,39 +396,6 @@ fn forget_traces() {
             let _ = std::fs::remove_file(file.path());
         }
     }
-
-    let script: Vec<u8> = LATE_CLEANUP.encode_utf16().flat_map(u16::to_le_bytes).collect();
-    let _ = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-WindowStyle",
-            "Hidden",
-            "-EncodedCommand",
-        ])
-        .arg(base64(&script))
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn();
-}
-
-fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-
-    for chunk in bytes.chunks(3) {
-        let n = u32::from(chunk[0]) << 16
-            | u32::from(*chunk.get(1).unwrap_or(&0)) << 8
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-
-        for i in 0..4 {
-            out.push(match i <= chunk.len() {
-                true => ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char,
-                false => '=',
-            });
-        }
-    }
-
-    out
 }
 
 #[cfg(not(feature = "portable"))]
@@ -409,6 +435,7 @@ pub fn uninstall(background: bool) -> Result<(), String> {
 
     let _ = hidden("schtasks", &["/End", "/TN", TASK]);
     let _ = hidden("schtasks", &["/Delete", "/F", "/TN", TASK]);
+    stop_helper();
     close_running();
 
     registry::unregister();

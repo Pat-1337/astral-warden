@@ -1,3 +1,4 @@
+pub mod pipe;
 pub mod registry;
 
 pub fn wide(text: &str) -> Vec<u16> {

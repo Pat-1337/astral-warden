@@ -19,7 +19,8 @@ Double-click `gpu-warden-<version>-windows-x86_64-setup.exe` and accept the UAC 
 |---|---|
 | Copy binary | `C:\Program Files\GPUWarden\gpu-warden.exe`; the downloaded file can be deleted |
 | Default config | `C:\ProgramData\gpu-warden\config.toml` |
-| Scheduled task | `GPUWarden`, runs at every logon with the highest privileges, no time limit, restarts on failure |
+| Scheduled task | `GPUWarden`, runs at every logon of any user with the highest privileges that user has, no time limit, restarts on failure |
+| Power helper | `GPUWardenPower`, runs at boot as SYSTEM; sets the power limit and installs updates for users without administrator rights |
 | Apps list | **GPU Warden** in Settings → Apps → Installed apps |
 | Start | starts right away |
 
@@ -27,7 +28,7 @@ Right after a reboot the NVIDIA driver or the WireView's COM port may not be rea
 
 With fast user switching, a second session waits (`--wait`) and takes over when the first logs off.
 
-Uninstall from **Settings → Apps → Installed apps → GPU Warden → Uninstall**, or run `gpu-warden uninstall`. It stops the running instance and removes everything: the program folder, config, log, state files, the logon task, registry entries, and update downloads. It also clears what Windows records about every program it runs: the MuiCache, UserAssist, Compatibility Assistant and tray icon entries, and the Prefetch files.
+Uninstall from **Settings → Apps → Installed apps → GPU Warden → Uninstall**, or run `gpu-warden uninstall`. It stops the running instance and removes everything: the program folder, config, log, state files, the logon task, the power helper task, registry entries, and update downloads. It also clears what Windows records about every program it runs: the MuiCache, UserAssist, Compatibility Assistant and tray icon entries, and the Prefetch files.
 
 ### Portable
 
@@ -66,7 +67,11 @@ Optional fallback: if the direct sensor read fails, readings come from [HWiNFO](
 
 With a WireView Pro II, close Thermal Grizzly's own WireView app first. Only one program can hold its COM port.
 
-Administrator rights are needed to change the power limit, and the logon task grants them. Run unelevated, it still monitors and can shut down, but it cannot cap power.
+Installing needs administrator rights (UAC prompt). Changing the power limit needs them too: NVML refuses `nvmlDeviceSetPowerManagementLimit` without them.
+
+The logon task starts the watchdog for every user who logs on, one instance at a time. An administrator's instance runs elevated and sets the limit itself. A standard user's instance runs with that user's rights and asks the power helper to set the limit. The helper only accepts limits between the card's minimum and the higher of its default limit and the limit it found at boot, so it cannot raise power. It listens on the local pipe `\\.\pipe\gpu-warden-power`, which only interactive users, administrators, and SYSTEM can open, and never over the network. The installed program starts it again when its version changes after an update.
+
+The portable build has no power helper. Run unelevated, it still monitors and can shut down, but it cannot cap power.
 
 ## Linux
 

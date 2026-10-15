@@ -13,6 +13,10 @@ const REPO: &str = "https://github.com/Pat-1337/gpu-warden";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const NETWORK_WAIT: Duration = Duration::from_secs(30);
 const TOOL_TIMEOUT: Duration = Duration::from_secs(300);
+#[cfg(windows)]
+const HELPER_TIMEOUT: Duration = Duration::from_secs(600);
+#[cfg(windows)]
+const HELPER_RESTART: Duration = Duration::from_secs(2);
 const CURL: &[&str] = &[
     "-fsSL",
     "--proto",
@@ -70,6 +74,10 @@ static NOTICED: AtomicBool = AtomicBool::new(false);
 static STAGED: Mutex<Option<(String, PathBuf)>> = Mutex::new(None);
 static NOTICE: Mutex<Option<(Severity, String)>> = Mutex::new(None);
 static RESTART: OnceLock<PathBuf> = OnceLock::new();
+#[cfg(windows)]
+static DELEGATED: AtomicBool = AtomicBool::new(false);
+#[cfg(windows)]
+static SERVING: Mutex<()> = Mutex::new(());
 
 pub fn start(enabled: bool) {
     if enabled {
@@ -93,6 +101,11 @@ pub fn tick(warden: &Warden, host: &mut impl Host) -> bool {
         host.notify(severity, display::app(), &body);
     }
 
+    #[cfg(windows)]
+    if DELEGATED.load(Ordering::Acquire) {
+        return true;
+    }
+
     if !READY.load(Ordering::Acquire) || !warden.settled() {
         return false;
     }
@@ -107,6 +120,12 @@ pub fn tick(warden: &Warden, host: &mut impl Host) -> bool {
             log!("updating to {version}");
             RESTART.set(exe).is_ok()
         }
+        #[cfg(windows)]
+        Err(e) => {
+            delegate(version, e);
+            false
+        }
+        #[cfg(not(windows))]
         Err(e) => {
             log!("update to {version} failed: {e}");
             notice(Severity::Warn, format!("Update to {version} failed: {e}."));
@@ -121,11 +140,110 @@ pub fn after_run(result: Result<(), String>, updated: bool) -> Result<(), String
 
         (Err(e), _) if updated => {
             log!("{VERSION} failed to start, rolling back: {e}");
-            rollback().map_or_else(|r| Err(format!("{e}; rollback: {r}")), |exe| relaunch(&exe, None))
+            undo().map_or_else(|r| Err(format!("{e}; rollback: {r}")), |exe| relaunch(&exe, None))
         }
 
         (result, _) => result,
     }
+}
+
+#[cfg(windows)]
+fn ask_helper(line: &str) -> Result<(), String> {
+    use gpu_warden::win::pipe;
+
+    match pipe::request(pipe::POWER, line.to_owned(), HELPER_TIMEOUT)?.as_str() {
+        "ok" => Ok(()),
+        reply => Err(reply.trim_start_matches("error: ").to_owned()),
+    }
+}
+
+#[cfg(windows)]
+fn delegate(version: String, local: String) {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+
+    std::thread::spawn(move || match ask_helper(&format!("update {version}")) {
+        Ok(()) => {
+            log!("updating to {version} through the power helper");
+            if RESTART.set(exe).is_ok() {
+                DELEGATED.store(true, Ordering::Release);
+            }
+        }
+        Err(e) => {
+            log!("update to {version} failed: {local}; power helper: {e}");
+            notice(Severity::Warn, format!("Update to {version} failed: {e}."));
+        }
+    });
+}
+
+#[cfg(windows)]
+fn undo() -> Result<PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+
+    rollback().or_else(|local| {
+        ask_helper("rollback")
+            .map(|()| exe)
+            .map_err(|e| format!("{local}; power helper: {e}"))
+    })
+}
+
+#[cfg(not(windows))]
+fn undo() -> Result<PathBuf, String> {
+    rollback()
+}
+
+#[cfg(windows)]
+fn release(tag: &str) -> Result<PathBuf, String> {
+    let canonical = parse(tag).map(|(major, minor, patch)| format!("v{major}.{minor}.{patch}"));
+    let newer = matches!((parse(tag), parse(VERSION)), (Some(new), Some(current)) if new > current);
+
+    if !newer || canonical.as_deref() != Some(tag) {
+        return Err(format!("{tag:?} is not a newer release"));
+    }
+
+    let binary = stage(tag)?;
+    swap(&binary)
+}
+
+#[cfg(windows)]
+fn restart_helper(exe: PathBuf) {
+    std::thread::spawn(move || {
+        std::thread::sleep(HELPER_RESTART);
+
+        let mut cmd = Command::new(&exe);
+        cmd.arg("power-helper");
+        std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
+
+        match cmd.spawn() {
+            Ok(_) => std::process::exit(0),
+            Err(e) => log!("power helper restart: {}: {e}", exe.display()),
+        }
+    });
+}
+
+#[cfg(windows)]
+pub fn serve(line: &str) -> Option<String> {
+    let busy = SERVING.lock().unwrap_or_else(|e| e.into_inner());
+
+    let result = match line.split_once(' ') {
+        Some(("update", tag)) => release(tag),
+        None if line == "rollback" => rollback(),
+        _ => return None,
+    };
+    drop(busy);
+
+    Some(match result {
+        Ok(exe) => {
+            log!("{line} done for an unelevated instance");
+            restart_helper(exe);
+            "ok".into()
+        }
+        Err(e) => {
+            log!("{line} failed: {e}");
+            format!("error: {e}")
+        }
+    })
 }
 
 fn notice(severity: Severity, body: String) {

@@ -11,6 +11,7 @@ gpu-warden [command] [flags]
 | `install` | Install for autostart (logon task on Windows; systemd, OpenRC, or runit service on Linux). |
 | `uninstall` | Remove everything: binary (installer build), service or logon task, config, log, state, registry entries. |
 | `config` | Print the default config. |
+| `power-helper` | Windows: serve power limit requests from unelevated instances (run by the `GPUWardenPower` boot task). |
 | `omarchy install` | `-omarchy` build only: add the bar widget for the current user. See [Omarchy](omarchy.md). |
 | `omarchy uninstall` | `-omarchy` build only: remove the bar widget. |
 | `auto-update <on\|off>` | Windows and Omarchy builds: set `auto_update` in the config. Needs root / admin. |

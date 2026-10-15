@@ -36,6 +36,8 @@ enum Command {
     Install,
     Uninstall,
     Defaults,
+    #[cfg(windows)]
+    PowerHelper,
     #[cfg(all(feature = "omarchy", target_os = "linux"))]
     Omarchy(omarchy::Action),
     #[cfg(updater)]
@@ -68,6 +70,8 @@ fn parse() -> Result<Args, String> {
             "install" => command = Command::Install,
             "uninstall" => command = Command::Uninstall,
             "config" => command = Command::Defaults,
+            #[cfg(windows)]
+            "power-helper" => command = Command::PowerHelper,
             #[cfg(all(feature = "omarchy", target_os = "linux"))]
             "omarchy" => command = Command::Omarchy(omarchy::Action::parse(args.next())?),
             #[cfg(updater)]
@@ -303,6 +307,8 @@ fn main() -> ExitCode {
                 args.config.display()
             )
         }),
+        #[cfg(windows)]
+        Command::PowerHelper => platform::power_helper(),
         Command::Defaults => {
             print!("{}", Config::default_text());
             Ok(())
