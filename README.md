@@ -4,6 +4,12 @@
 
 <p align="center">Per-pin 12V-2x6 watchdog for Windows 11 and Linux</p>
 
+<p align="center">
+  <a href="https://github.com/Pat-1337/gpu-warden/actions/workflows/ci.yml"><img src="https://github.com/Pat-1337/gpu-warden/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/Pat-1337/gpu-warden/releases/latest"><img src="https://img.shields.io/github/v/release/Pat-1337/gpu-warden" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Pat-1337/gpu-warden" alt="License"></a>
+</p>
+
 ## Hardware
 
 | Sensor | Where it sits |
